@@ -21,6 +21,7 @@ Functions:
 '''
 import os, glob
 import numpy as np
+import numba as nb
 import pandas as pd
 import cv2
 import av
@@ -148,7 +149,7 @@ class NTU:
 
 
         # Pickle metadata for later
-        pickle.dump(self.metadata, open('metadata.pkl', 'wb'))
+        pickle.dump(self.metadata, open('cache/metadata.pkl', 'wb'))
 
 
 
@@ -158,12 +159,12 @@ class NTU:
         Checks current path for saved metadata and prompts user to use this
         or reload
         '''
-        if 'metadata.pkl' in os.listdir(os.curdir):
-            if yesno('metadata.pkl found in current path. Use this file?'):
+        if 'metadata.pkl' in os.listdir(os.path.join(os.curdir, 'cache')):
+            if yesno('metadata.pkl found in cache directory. Use this file?'):
                 self.skip_load = True
-                return pickle.load(open('metadata.pkl', 'rb'))
+                return pickle.load(open('cache/metadata.pkl', 'rb'))
         else:
-            print('metadata.pkl not found. Use load() to load metadata')
+            print('cache/metadata.pkl not found. Use load() to load metadata')
 
 
 
@@ -262,48 +263,6 @@ class NTU:
 
 
 
-    def get_depth_2_rgb_map_old(self, vid_id, frame_id, depth_ims=None):
-        '''
-        Creates a map from depth coordinates to rgb coordinates.
-        This can be used to build a voxel grid with rgb values.
-        '''
-        for metadatum in self.metadata:
-            if metadatum['video_index'] == vid_id:
-                m = metadatum
-                break
-
-        # Get depth images - we only care about the nonzero elements
-        depth_ims = depth_ims if depth_ims is not None else self.get_depth_images(vid_id) / 1000.0
-        depth_im_nonzero = np.nonzero(depth_ims[frame_id])
-
-        depth_2_rgb = {}
-        rgb_2_depth = {}
-
-        for idx in range(len(depth_im_nonzero[0])):
-            y = depth_im_nonzero[0][idx]
-            x = depth_im_nonzero[1][idx]
-            z = depth_ims[frame_id, y, x]
-
-            ''' Depth --> Camera coordinates '''
-            x_3D = (x - cx_d) * z / fx_d
-            y_3D = (y - cy_d) * z / fy_d
-
-            ''' Apply rotation and translation '''
-            p0 = np.array([x_3D, y_3D, z])
-            p = (m['R'] @ p0.reshape(1,-1).T) + m['T']*m['scale']
-
-            ''' Camera coordinates --> RGB '''
-            x_rgb = (p[0] * rgb_mat[0,0] / p[2]) + rgb_mat[0,2]
-            y_rgb = (p[1] * rgb_mat[1,1] / p[2]) + rgb_mat[1,2]
-
-            if y_rgb >= 1080 or x_rgb >= 1920:
-                continue
-            depth_2_rgb[(x, y)] = (x_rgb[0], y_rgb[0])
-            rgb_2_depth[(int(x_rgb[0]), int(y_rgb[0]))] = (x, y)
-
-        return depth_2_rgb, rgb_2_depth
-
-
 
     def get_2D_optical_flow(self, vid_id):
         '''
@@ -315,19 +274,22 @@ class NTU:
         flow = None
         flow_maps = np.zeros([len(vid) - 1, 2, vid.shape[1], vid.shape[2]])
         for kk in range(1,len(vid)-1):
-            flow = cv2.calcOpticalFlowFarneback(vid[kk-1], vid[kk], flow, 0.4, 1, 15, 3, 8, 1.2, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+            flow = cv2.calcOpticalFlowFarneback(vid[kk-1], vid[kk], flow, 0.4,
+                1, 15, 3, 8, 1.2, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
             flow_maps[kk-1,0,:,:] = flow[:,:,0].copy()
             flow_maps[kk-1,1,:,:] = flow[:,:,1].copy()
         return flow_maps
 
 
 
+
     def get_rgb_3D_maps(self, vid_id):
         '''
-        Creates a map from rgb pixels to the camera coordinate at that pixel.
+        Creates a map from rgb pixels to the depth camera xyz coordinate at that
+        pixel.
 
-        For every non-zero value in the depth image, creates the map from the
-        closest rgb pixel to that value. Will be sparse in terms of rgb.
+        Returns ndarray of size:
+            [video_frames * 1080 * 1920 * 3]
         '''
 
         # Get metadata - for rotation and translation matrices
@@ -338,78 +300,20 @@ class NTU:
 
         # Get depth images
         depth_ims = self.get_depth_images(vid_id)
+        depth_ims = depth_ims[:5]
         depth_ims = depth_ims.astype(np.float32)/1000.0
-        depth_ims[depth_ims == 0] = 1000
+        depth_ims[depth_ims == 0] = -1000
 
-        # Get image dimensions
-        W_rgb, H_rgb = 1920, 1080
-
-        # Fill out the matrix with every nonzero value in the depth image
-        rgb_3D = np.zeros([depth_ims.shape[0], H_rgb, W_rgb, 3])
-        for frame in range(depth_ims.shape[0]):
-            depth_im_nonzero = np.nonzero(depth_ims[frame])
-            for idx in range(len(depth_im_nonzero[0])):
-                v = depth_im_nonzero[0][idx]
-                u = depth_im_nonzero[1][idx]
-                z = depth_ims[frame, v, u]
-
-                ''' Depth --> Depth-camera coordinates '''
-                x_3D = (u - cx_d) * z / fx_d
-                y_3D = (v - cy_d) * z / fy_d
-
-                ''' Apply rotation and translation '''
-                xyz_d = np.array([x_3D, y_3D, z])
-                xyz_rgb = m['R'] @ xyz_d[:,np.newaxis] + m['T']*m['scale']
-
-                ''' RGB-camera coordinates --> RGB '''
-                x_rgb = (xyz_rgb[0] * rgb_mat[0,0] / xyz_rgb[2]) + rgb_mat[0,2]
-                y_rgb = (xyz_rgb[1] * rgb_mat[1,1] / xyz_rgb[2]) + rgb_mat[1,2]
-
-                ''' Don't insert values out of the frame '''
-                if y_rgb >= 1080 or x_rgb >= 1920: continue
-
-                rgb_3D[frame, int(y_rgb), int(x_rgb)] = xyz_d
-            #     print("u:", u)
-            #     print("v:", v)
-            #     print("x_3D:", x_3D)
-            #     print("y_3D:", y_3D)
-            #     print("xyz_rgb:", xyz_rgb)
-            #     print("x_rgb:", x_rgb)
-            #     print("y_rgb:", y_rgb)
-            #     break
-            # break
-
-        return rgb_3D
-
-
-    def get_rgb_3D_maps_new(self, vid_id):
-        '''
-        Creates a map from rgb pixels to the camera coordinate at that pixel.
-
-        For every non-zero value in the depth image, creates the map from the
-        closest rgb pixel to that value. Will be sparse in terms of rgb.
-        '''
-
-        # Get metadata - for rotation and translation matrices
-        for metadatum in self.metadata:
-            if metadatum['video_index'] == vid_id:
-                m = metadatum
-                break
-
-        # Get depth images
-        depth_ims = self.get_depth_images(vid_id)
-        depth_ims = depth_ims.astype(np.float32)/1000.0
-        depth_ims[depth_ims == 0] = 1000
-
-        # Constants
+        # Constants - image size
         frames, H_depth, W_depth = depth_ims.shape
         W_rgb, H_rgb = 1920, 1080
 
         # Arrays to fill
         rgb_xyz_sparse = np.zeros([frames, H_rgb, W_rgb, 3])
 
-        # Get matrix with depth pixel to depth xyz location
+        # Create sparse matrix with depth pixel to depth xyz location
         for frame in range(frames):
+            print(frame)
             ''' Depth --> Depth-camera coordinates '''
             Y, X = np.mgrid[0:H_depth, 0:W_depth]
             x_3D = (X - cx_d) * depth_ims[frame] / fx_d
@@ -425,34 +329,51 @@ class NTU:
             x_rgb[x_rgb >= W_rgb] = 0
             y_rgb[y_rgb >= H_rgb] = 0
 
-            # u, v = 277, 114
-            # print("u:", u)
-            # print("v:", v)
-            # print("x_3D:", x_3D[v,u])
-            # print("y_3D:", y_3D[v,u])
-            # print("xyz_rgb:", xyz_rgb[v,u])
-            # print("x_rgb:", x_rgb[v,u])
-            # print("y_rgb:", y_rgb[v,u])
-            # print("xyz_d:", xyz_d[v,u])
+            for y in range(H_depth):
+                for x in range(W_depth):
+                    rgb_xyz_sparse[frame, int(y_rgb[y,x]), int(x_rgb[y,x])] = xyz_d[y, x]
 
-            xyz_d_nonzero = np.nonzero(xyz_d)
-            for idx in range(len(xyz_d_nonzero[0])):
-                y = xyz_d_nonzero[0][idx]
-                x = xyz_d_nonzero[1][idx]
-                rgb_xyz_sparse[frame, int(y_rgb[y,x]), int(x_rgb[y,x])] = xyz_d[y, x]
+        # Helper function to fill a sparse array with closest value
+        def fill_with_closest_value(a):
+            # Get sorted list of pairs of i,j coordinates in 20x20 square
+            pairs = [(i, j) for i in range(-10,10) for j in range(-10,10)]
+            pairs = list(set(pairs))
+            pairs = sorted(pairs, key=np.linalg.norm)
 
-        # Expand matrix so it's rgb pixel to depth xyz location
-        # for frame in range(frames):
-        #     for row in range(1080):
-        #         for col in
-        #         row_data = rgb_xyz_sparse[frame, :, row, 2]
-        #         print(np.where(row_data>0))
-        #         mask = (row_data == 0)
-        #         row_data[mask] = np.interp(np.flatnonzero(mask), np.flatnonzero(~mask), row_data[~mask])
+            for frame in range(frames):
+                print(frame)
+                # Get masked array of missing values
+                mask      = np.ma.masked_equal(a[frame,:,:,2], 0)
+                mask_copy = mask.copy()
+                a_copy    = a[frame].copy()
 
-        return rgb_xyz_sparse
+                # Fill in the missing values until none left
+                for shift in pairs:
+                    if not np.any(mask.mask): break
 
+                    # Create shifted mask and original array
+                    mask_shifted = np.roll(mask_copy, shift=shift, axis=(0,1))
+                    a_shifted    = np.roll(a_copy,    shift=shift, axis=(0,1))
 
+                    # Get the indices of mask that don't line up with the original mask
+                    idx = ~mask_shifted.mask * mask.mask
+
+                    # Set the mask and array to the shifted values
+                    mask[idx]     = mask_shifted[idx]
+                    a[frame, idx] = a_shifted[idx]
+            return a
+
+        # Fill sparse
+        # invalid = (a == 0)
+        # ind = scipy.ndimage.distance_transform_edt(invalid,
+        #                             return_distances=False,
+        #                             return_indices=True)
+        # rgb_xyz a[tuple(ind)]
+
+        # Remove background values by zeroing them out
+        rgb_xyz[rgb_xyz[:,:,:,2] < 0] = 0
+
+        return rgb_xyz
 
 
 
@@ -506,6 +427,8 @@ class NTU:
             op_flow_3D[frame][:,2] -= m[2]
 
         return op_flow_3D
+
+
 
 
 
@@ -659,4 +582,4 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    optical_flow = dataset.get_3D_optical_flow(0)
+    rgb_to_xyz = dataset.get_rgb_3D_maps(0)
