@@ -100,6 +100,7 @@ class PointCloudViewer:
         glClearColor(0., 0., 0., 1.)
         glClearDepth(1.0)
         glEnable(GL_DEPTH_TEST)
+        glDepthFunc(GL_LESS)
         glEnable(GL_CULL_FACE)
         glEnable(GL_COLOR_MATERIAL)
         glEnable(GL_TEXTURE_2D)
@@ -184,19 +185,19 @@ class PointCloudViewer:
         glMatrixMode(GL_PROJECTION)
         glLoadIdentity()
 
-        gluPerspective(45.0, float(width)/float(height), 0.1, 100.0)
+        gluPerspective(45.0, float(width)/float(height), 0.1, 20.0)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
         gluLookAt(*self.camera.get_viewing_matrix())
         glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
         glColorMaterial(GL_FRONT,GL_AMBIENT_AND_DIFFUSE)
-        # glEnable(GL_LIGHTING)
-        # glLightfv(GL_LIGHT0, GL_AMBIENT, (1.0, 1.0, 1.0, 1.0))
-        # glLightfv(GL_LIGHT1, GL_DIFFUSE, (1.0, 1.0, 1.0, 1.0))
-        # glLightfv(GL_LIGHT2, GL_POSITION, (0.0, 3.0, -5.0, 1.0))
-        # glEnable(GL_LIGHT0)
-        # glEnable(GL_LIGHT1)
-        # glEnable(GL_LIGHT2)
+        glEnable(GL_LIGHTING)
+        glLightfv(GL_LIGHT0, GL_AMBIENT, (1.0, 1.0, 1.0, 1.0))
+        glLightfv(GL_LIGHT1, GL_DIFFUSE, (1.0, 1.0, 1.0, 1.0))
+        glLightfv(GL_LIGHT2, GL_POSITION, (0.0, 3.0, -5.0, 1.0))
+        glEnable(GL_LIGHT0)
+        glEnable(GL_LIGHT1)
+        glEnable(GL_LIGHT2)
         self.draw_axes()
         if self.op_flow:
             self.draw_optical_flow()
@@ -246,10 +247,11 @@ class PointCloudViewer:
         self.set_fps()
         op_flow_list = self.op_flow[self.get_frame(self.op_flow)]
         glColor3f(1, 0, 0)
+        print(len(op_flow_list))
         for i in range(0, len(op_flow_list), 1):
             flow = op_flow_list[i]
-            glPushMatrix()
             # Get perpendicular vector
+            glPushMatrix()
             glTranslatef(flow[0], -flow[1], flow[2])
             # glRotatef(10, 1, 0, 0)
             # glutSolidCone(0.02, 0.1, 5, 5)
@@ -299,36 +301,13 @@ if __name__ == '__main__':
     # dataset = ntu_rgb.NTU()
 
     # Point clouds
-    # pickle.dump(pointclouds, open('pointclouds_2.pickle', 'wb'))
-    # pointclouds = pickle.load(open('pointclouds_2.pickle', 'rb'))
-
-    # RGB Point Cloud
-    # rgb_3D = dataset.get_rgb_3D_maps(0)
-    # pickle.dump(rgb_3D[:50], open('3D_maps_0.pickle', 'wb'))
-    # pickle.dump(rgb_3D[50:], open('3D_maps_1.pickle', 'wb'))
-    # pc1 = pickle.load(open('3D_maps_0.pickle', 'rb'))
-    # pc2 = pickle.load(open('3D_maps_1.pickle', 'rb'))
-    # pointclouds = pc1.append(pc2)
-    bytes_in = bytearray(0)
-    max_bytes = 2**31 - 1
-    input_size = os.path.getsize("3D_maps_0.pickle")
-    with open("3D_maps_0.pickle", 'rb') as f_in:
-        for _ in range(0, input_size, max_bytes):
-            bytes_in += f_in.read(max_bytes)
-    data1 = pickle.loads(bytes_in)
-    bytes_in = bytearray(0)
-    input_size = os.path.getsize("3D_maps_1.pickle")
-    with open("3D_maps_1.pickle", 'rb') as f_in:
-        for _ in range(0, input_size, max_bytes):
-            bytes_in += f_in.read(max_bytes)
-    data2 = pickle.loads(bytes_in)
-    pointclouds = np.concatenate([data1, data2])
-    print(pointclouds.shape)
+    # pickle.dump(pointclouds, open('cache/pointclouds.pickle', 'wb'))
+    # pointclouds = pickle.load(open('cache/pointclouds.pickle', 'rb'))
 
     # Optical Flow
     # optical_flow = dataset.get_3D_optical_flow(0)
-    # pickle.dump(optical_flow, open('optical_flow.pickle', 'wb'))
-    # optical_flow = pickle.load(open('optical_flow.pickle', 'rb'))
+    # pickle.dump(optical_flow, open('cache/optical_flow.pickle', 'wb'))
+    optical_flow = pickle.load(open('cache/optical_flow.pickle', 'rb'))
 
     viewer = PointCloudViewer(pointclouds=pointclouds, op_flow=optical_flow)
     viewer.view()

@@ -25,7 +25,7 @@ import numba as nb
 import pandas as pd
 import cv2
 import av
-import scipy, scipy.optimize
+import scipy, scipy.optimize, scipy.ndimage
 import line_profiler
 import re
 from tqdm import tqdm
@@ -204,7 +204,8 @@ class NTU:
         Returns the rgb frames for a specified video in a ndarray of size:
             [video_frames * 1080 * 1920 * 3]
         '''
-        vid = av.open(self.rgb_vids[vid_id])
+        # vid = av.open(self.rgb_vids[vid_id])
+        vid = av.open("/Users/mpeven/Downloads/S001C001P001R001A001_rgb.avi") # TODO: remove
         imgs = []
         for packet in vid.demux():
             for frame in packet.decode():
@@ -282,7 +283,6 @@ class NTU:
 
 
 
-
     def get_rgb_3D_maps(self, vid_id):
         '''
         Creates a map from rgb pixels to the depth camera xyz coordinate at that
@@ -300,7 +300,6 @@ class NTU:
 
         # Get depth images
         depth_ims = self.get_depth_images(vid_id)
-        depth_ims = depth_ims[:5]
         depth_ims = depth_ims.astype(np.float32)/1000.0
         depth_ims[depth_ims == 0] = -1000
 
@@ -308,67 +307,34 @@ class NTU:
         frames, H_depth, W_depth = depth_ims.shape
         W_rgb, H_rgb = 1920, 1080
 
-        # Arrays to fill
+        # Depth --> Depth-camera coordinates
+        Y, X = np.mgrid[0:H_depth, 0:W_depth]
+        x_3D = (X - cx_d) * depth_ims / fx_d
+        y_3D = (Y - cy_d) * depth_ims / fy_d
+
+        # Apply rotation and translation
+        xyz_d = np.stack([x_3D, y_3D, depth_ims], axis=3)
+        xyz_rgb = m['T']*m['scale'] + m['R'] @ xyz_d[:,:,:,:,np.newaxis]
+
+        # RGB-camera coordinates --> RGB pixel coordinates
+        x_rgb = (xyz_rgb[:,:,:,0] * rgb_mat[0,0] / xyz_rgb[:,:,:,2]) + rgb_mat[0,2]
+        y_rgb = (xyz_rgb[:,:,:,1] * rgb_mat[1,1] / xyz_rgb[:,:,:,2]) + rgb_mat[1,2]
+        x_rgb[x_rgb >= W_rgb] = 0
+        y_rgb[y_rgb >= H_rgb] = 0
+
+        # Fill in sparse array
         rgb_xyz_sparse = np.zeros([frames, H_rgb, W_rgb, 3])
-
-        # Create sparse matrix with depth pixel to depth xyz location
         for frame in range(frames):
-            print(frame)
-            ''' Depth --> Depth-camera coordinates '''
-            Y, X = np.mgrid[0:H_depth, 0:W_depth]
-            x_3D = (X - cx_d) * depth_ims[frame] / fx_d
-            y_3D = (Y - cy_d) * depth_ims[frame] / fy_d
-
-            ''' Apply rotation and translation '''
-            xyz_d = np.stack([x_3D, y_3D, depth_ims[frame]], axis=2)
-            xyz_rgb = m['T']*m['scale'] + m['R'] @ xyz_d[:,:,:,np.newaxis]
-
-            ''' RGB-camera coordinates --> RGB pixel coordinates '''
-            x_rgb = (xyz_rgb[:,:,0] * rgb_mat[0,0] / xyz_rgb[:,:,2]) + rgb_mat[0,2]
-            y_rgb = (xyz_rgb[:,:,1] * rgb_mat[1,1] / xyz_rgb[:,:,2]) + rgb_mat[1,2]
-            x_rgb[x_rgb >= W_rgb] = 0
-            y_rgb[y_rgb >= H_rgb] = 0
-
             for y in range(H_depth):
                 for x in range(W_depth):
-                    rgb_xyz_sparse[frame, int(y_rgb[y,x]), int(x_rgb[y,x])] = xyz_d[y, x]
+                    rgb_xyz_sparse[frame, int(y_rgb[frame,y,x]), int(x_rgb[frame,y,x])] = xyz_d[frame, y, x]
 
-        # Helper function to fill a sparse array with closest value
-        def fill_with_closest_value(a):
-            # Get sorted list of pairs of i,j coordinates in 20x20 square
-            pairs = [(i, j) for i in range(-10,10) for j in range(-10,10)]
-            pairs = list(set(pairs))
-            pairs = sorted(pairs, key=np.linalg.norm)
-
-            for frame in range(frames):
-                print(frame)
-                # Get masked array of missing values
-                mask      = np.ma.masked_equal(a[frame,:,:,2], 0)
-                mask_copy = mask.copy()
-                a_copy    = a[frame].copy()
-
-                # Fill in the missing values until none left
-                for shift in pairs:
-                    if not np.any(mask.mask): break
-
-                    # Create shifted mask and original array
-                    mask_shifted = np.roll(mask_copy, shift=shift, axis=(0,1))
-                    a_shifted    = np.roll(a_copy,    shift=shift, axis=(0,1))
-
-                    # Get the indices of mask that don't line up with the original mask
-                    idx = ~mask_shifted.mask * mask.mask
-
-                    # Set the mask and array to the shifted values
-                    mask[idx]     = mask_shifted[idx]
-                    a[frame, idx] = a_shifted[idx]
-            return a
-
-        # Fill sparse
-        # invalid = (a == 0)
-        # ind = scipy.ndimage.distance_transform_edt(invalid,
-        #                             return_distances=False,
-        #                             return_indices=True)
-        # rgb_xyz a[tuple(ind)]
+        # Fill in the rest of the sparse matrix
+        invalid = (rgb_xyz_sparse == 0)
+        ind = scipy.ndimage.distance_transform_edt(invalid,
+                                                   return_distances=False,
+                                                   return_indices=True)
+        rgb_xyz = rgb_xyz_sparse[tuple(ind)]
 
         # Remove background values by zeroing them out
         rgb_xyz[rgb_xyz[:,:,:,2] < 0] = 0
@@ -386,8 +352,10 @@ class NTU:
         '''
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
-        rgb_3D = _rgb_3D if _rgb_3D is not None else self.get_rgb_3D_maps(vid_id)
-        op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
+        # rgb_3D = _rgb_3D if _rgb_3D is not None else self.get_rgb_3D_maps(vid_id)
+        # op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
+        rgb_3D = np.load('cache/rgb_3D_maps_0.npy')
+        op_flow_2D = np.load('cache/op_flow_2D_0.npy')
 
         # Build list of framewise 3D optical flow vectors
         op_flow_3D = []
@@ -403,15 +371,16 @@ class NTU:
                 du, dv = op_flow_2D[frame, :, v, u]
 
                 # Get start and end position in 3D using the flow map vector
-                # This will fail because of the sparsity of the rgb_3D map
                 p0 = rgb_3D[frame - 1, int(v - dv), int(u - du)]
-                # if p0[2] == 0: continue # Only want vectors that started at a non-zero point
+                if p0[2] == 0: continue # Only want vectors that started at a non-zero point
                 p1 = rgb_3D[frame, v, u]
 
-                # Get change in position
-                dp = p1 - p0
-                # Remove small vectors (optional)
-                # if np.linalg.norm(dp) < 0.0005: continue
+                # Get change in position if optical flow vector is large enough
+                if np.linalg.norm([du,dv]) < 1.0:
+                    dp = np.array([0,0,0])
+                else:
+                    dp = p1 - p0
+
                 flow_vectors.append(np.concatenate([p0, dp]))
 
             # Stack list of flow vectors into one array
@@ -420,7 +389,7 @@ class NTU:
         # Zero mean x y & z (the starting point)
         all_vecs = np.concatenate(op_flow_3D)
         m = np.mean(all_vecs, axis=0)
-        print(m)
+
         for frame in range(len(op_flow_3D)):
             op_flow_3D[frame][:,0] -= m[0]
             op_flow_3D[frame][:,1] -= m[1]
@@ -582,4 +551,7 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    rgb_to_xyz = dataset.get_rgb_3D_maps(0)
+    op_flow_3D = dataset.get_3D_optical_flow(0)
+    import pickle
+    pickle.dump(op_flow_3D, open('cache/op_flow_3D_0.pickle', 'wb'))
+
