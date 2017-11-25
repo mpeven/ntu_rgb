@@ -204,8 +204,7 @@ class NTU:
         Returns the rgb frames for a specified video in a ndarray of size:
             [video_frames * 1080 * 1920 * 3]
         '''
-        # vid = av.open(self.rgb_vids[vid_id])
-        vid = av.open("/Users/mpeven/Downloads/S001C001P001R001A001_rgb.avi") # TODO: remove
+        vid = av.open(self.rgb_vids[vid_id])
         imgs = []
         for packet in vid.demux():
             for frame in packet.decode():
@@ -288,8 +287,9 @@ class NTU:
         Creates a map from rgb pixels to the depth camera xyz coordinate at that
         pixel.
 
-        Returns ndarray of size:
-            [video_frames * 1080 * 1920 * 3]
+        Returns
+        -------
+        rgb_xyz : ndarray, shape [video_frames * 1080 * 1920 * 3]
         '''
 
         # Get metadata - for rotation and translation matrices
@@ -349,13 +349,24 @@ class NTU:
     def get_3D_optical_flow(self, vid_id, _rgb_3D=None, _op_flow_2D=None):
         '''
         Turns 2D optical flow into 3D
+
+        Returns
+        -------
+        op_flow_3D : list (length = #frames in video-1) of ndarrays
+            (shape: optical_flow_arrows * 6) (6 --> x,y,z,dx,dy,dz)
         '''
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
-        # rgb_3D = _rgb_3D if _rgb_3D is not None else self.get_rgb_3D_maps(vid_id)
-        # op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
-        rgb_3D = np.load('cache/rgb_3D_maps_0.npy')
-        op_flow_2D = np.load('cache/op_flow_2D_0.npy')
+        start = dt.datetime.now()
+        print("Getting rgb 3D map.", end="")
+        rgb_3D = _rgb_3D if _rgb_3D is not None else self.get_rgb_3D_maps(vid_id)
+        print(" Done {}".format(dt.datetime.now() - start))
+        start = dt.datetime.now()
+        print("Getting 2D optical flow.", end="")
+        op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
+        print(" Done {}".format(dt.datetime.now() - start))
+        start = dt.datetime.now()
+        print("Building 3D optical flow.", end="")
 
         # Build list of framewise 3D optical flow vectors
         op_flow_3D = []
@@ -395,8 +406,29 @@ class NTU:
             op_flow_3D[frame][:,1] -= m[1]
             op_flow_3D[frame][:,2] -= m[2]
 
+        print(" Done {}".format(dt.datetime.now() - start))
         return op_flow_3D
 
+
+
+    def get_voxel_flow(self, vid_id):
+        '''
+        Get 3D optical flow constrained to a voxel grid
+        '''
+        VOXEL_SIZE = 150
+
+        # op_flow_3D = self.get_3D_optical_flow(vid_id)
+        op_flow_3D = pickle.load(open('cache/op_flow_3D_0.pickle', 'rb'))
+
+        num_frames = len(op_flow_3D)
+
+        # Backwards fill-in of voxel grid
+        voxel_flow = np.zeros([VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE])
+        for frame in op_flow_3D
+            for x in range(VOXEL_SIZE):
+                for y in range(VOXEL_SIZE):
+                    for z in range(VOXEL_SIZE):
+                        voxel_flow[x,y,z] =
 
 
 
@@ -551,7 +583,8 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    op_flow_3D = dataset.get_3D_optical_flow(0)
     import pickle
-    pickle.dump(op_flow_3D, open('cache/op_flow_3D_0.pickle', 'wb'))
-
+    for vid in range(2,60):
+        print("Video {}".format(vid))
+        op_flow_3D = dataset.get_3D_optical_flow(vid)
+        pickle.dump(op_flow_3D, open('cache/op_flow_3D_{}.pickle'.format(vid), 'wb'))

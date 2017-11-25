@@ -42,6 +42,7 @@ pyramid_verts = np.array([[0, 0, s],[s, 0, -s],[-s, 0, -s],[0, -s, 0],])
 class Optical_flow_3D:
     def __init__(self, optical_flow):
         self.op_flow = optical_flow
+        self.min_op_flow_length = 0.00001
         self.num_frames = len(optical_flow)
         self.vbo_data = self.create_vbo_data()
 
@@ -61,13 +62,14 @@ class Optical_flow_3D:
             self.op_flow[frame][:,1] *= -1
             self.op_flow[frame][:,4] *= -1
 
-            # Get all arrows and add values to get constant amount
+            # Create arrows at optical flow vectors with length above minimum
             arrows = self.create_arrows(self.op_flow[frame].copy())
             num_arrow_verts = len(arrows)//3
             num_arrows = len(arrows)//arrow_verts.size
             arrow_colors = np.tile(np.array([1, 0, 0]), num_arrow_verts)
             arrow_indices = np.repeat(np.arange(num_arrows), len(arrow_idxs))*arrow_verts.shape[0] + np.tile(arrow_idxs, num_arrows)
 
+            # Create pyramids at optical flow vectors with length below minimum
             pyramids = self.create_pyramids(self.op_flow[frame][:].copy())
             num_pyramid_verts = len(pyramids)//3
             num_pyramids = len(pyramids)//pyramid_verts.size
@@ -75,6 +77,7 @@ class Optical_flow_3D:
             indices = np.repeat(np.arange(num_pyramids), len(pyramid_idxs))*4 + np.tile(pyramid_idxs, num_pyramids)
             indices += max(arrow_indices, default=-1) + 1
 
+            # Combine arrows and pyramids
             frames.append((np.concatenate([arrows, pyramids]),
                            np.concatenate([arrow_colors, colors]),
                            np.concatenate([arrow_indices, indices])))
@@ -86,7 +89,7 @@ class Optical_flow_3D:
         position of the person in the depth value
         '''
         xyz_length = np.linalg.norm(op_flow[:, 3:], axis=1)
-        mask = (xyz_length <= 0.00001)
+        mask = (xyz_length <= self.min_op_flow_length)
         xyz_length = xyz_length[mask]
         op_flow = op_flow[mask]
         vertices = np.tile(pyramid_verts.copy(), (op_flow.shape[0], 1))
@@ -100,7 +103,7 @@ class Optical_flow_3D:
     def create_arrows(self, op_flow):
         # Remove vectors with norm = 0
         xyz_length = np.linalg.norm(op_flow[:, 3:], axis=1)
-        mask = (xyz_length > 0.00001)
+        mask = (xyz_length > self.min_op_flow_length)
         xyz_length = xyz_length[mask]
         op_flow = op_flow[mask]
 
@@ -150,8 +153,8 @@ class Optical_flow_3D:
 
 
 
-class PointCloudViewer:
-    def __init__(self, pointclouds=None, op_flow=None):
+class OpticalFlowViewer:
+    def __init__(self, op_flow):
         self.last_frame_change = time.time()
         self.last_draw = time.time()
         self.frame = 0
@@ -174,37 +177,10 @@ class PointCloudViewer:
 
 
 
-
-
-    def display(self):
-        """
-        Callback to set the camera position and draw the scene
-        """
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-
-        gluPerspective(45.0, float(width)/float(height), 0.1, 20.0)
-        glMatrixMode(GL_MODELVIEW)
-        glLoadIdentity()
-        gluLookAt(*self.camera.get_viewing_matrix())
-        glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)
-        glColorMaterial(GL_FRONT,GL_AMBIENT_AND_DIFFUSE)
-        glEnable(GL_LIGHTING)
-        glLightfv(GL_LIGHT0, GL_AMBIENT, (1.0, 1.0, 1.0, 1.0))
-        glLightfv(GL_LIGHT1, GL_DIFFUSE, (1.0, 1.0, 1.0, 1.0))
-        glLightfv(GL_LIGHT2, GL_POSITION, (0.0, 3.0, -5.0, 1.0))
-        glEnable(GL_LIGHT0)
-        glEnable(GL_LIGHT1)
-        glEnable(GL_LIGHT2)
-        self.draw_axes()
-        if self.op_flow:
-            self.draw_optical_flow()
-        else:
-            self.draw_point_cloud()
-        glutSwapBuffers()
-
-
     def draw(self):
+        '''
+        Callback to draw everything in the glut windows
+        '''
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -221,7 +197,13 @@ class PointCloudViewer:
         glFlush()
         glutSwapBuffers()
 
+
+
+
     def create_vbo(self):
+        '''
+        Builds the buffers
+        '''
         self.buffers = glGenBuffers(self.op_flow.num_frames * 3)
         for frame in tqdm(range(self.op_flow.num_frames), "Filling in VBO"):
             # Vertex colors
@@ -245,7 +227,11 @@ class PointCloudViewer:
 
 
 
+
     def draw_vbo(self):
+        '''
+        Binds the buffer objects for the current frame
+        '''
         frame = self.get_frame()
         glEnableClientState(GL_VERTEX_ARRAY)
         glEnableClientState(GL_COLOR_ARRAY)
@@ -260,15 +246,17 @@ class PointCloudViewer:
 
 
 
+
     def view(self):
-        """
+        '''
         Main function to create window and register callbacks for displaying
-        """
+        '''
+        # Initialize glut
         glutInit()
         glutInitDisplayMode(GLUT_RGBA | GLUT_DOUBLE | GLUT_DEPTH)
         glutInitWindowSize(width, height)
         glutInitWindowPosition(0, 0)
-        glutCreateWindow("Point Cloud Viewer")
+        glutCreateWindow("Optical Flow Viewer")
         glutMouseFunc(self.mouse_button)
         glutMotionFunc(self.mouse_motion)
         glutDisplayFunc(self.draw)
@@ -276,38 +264,39 @@ class PointCloudViewer:
         glutReshapeFunc(self.reshape_func)
         glutKeyboardFunc(self.key_pressed)
         glutSpecialFunc(self.sp_key_pressed)
-        self.init_gl()
-        glutMainLoop()
 
-
-    def reshape_func(self, w, h):
-        self.resize(w, h == 0 and 1 or h)
-
-    def resize(self, Width, Height):
-        # viewport
-        if Height == 0:
-            Height = 1
-        glViewport(0, 0, Width, Height)
-        # projection
-        glMatrixMode(GL_PROJECTION)
-        glLoadIdentity()
-        gluPerspective(45.0, float(Width)/float(Height), 0.1, 100.0)
-
-
-
-    def init_gl(self):
+        # Initialize opengl environment
         glClearColor(0., 0., 0., 1.)
         glClearDepth(1.0)
         glEnable(GL_DEPTH_TEST)
         glDepthFunc(GL_LESS)
-        # glEnable(GL_CULL_FACE)
         glEnable(GL_COLOR_MATERIAL)
         glEnable(GL_TEXTURE_2D)
         glShadeModel(GL_SMOOTH)
 
+        # Enter loop - never to return
+        glutMainLoop()
+
+
+
+    def reshape_func(self, Width, Height):
+        '''
+        Callback to change the camera on a window resize
+        '''
+        if Height == 0: Height = 1
+        glViewport(0, 0, Width, Height)
+        glMatrixMode(GL_PROJECTION)
+        glLoadIdentity()
+        gluPerspective(45.0, float(Width)/float(Height), 0.1, 50.0)
+
+
 
 
     def sp_key_pressed(self, key, x, y):
+        '''
+        Arrow keys callback
+        '''
+
         # Accelerate if continuing to press a key
         if key == self.last_key and (dt.datetime.now() - self.last_key_t).total_seconds() < 0.1:
             if self.rotation_angle < 5*rotation_angle0:
@@ -331,9 +320,9 @@ class PointCloudViewer:
 
 
     def key_pressed(self, key, x, y):
-        """
-        Callback to handle keyboard interactions
-        """
+        '''
+        Keyboard callback
+        '''
 
         # Accelerate if continuing to press a key
         if key == self.last_key and (dt.datetime.now() - self.last_key_t).total_seconds() < 0.1:
@@ -354,16 +343,17 @@ class PointCloudViewer:
         elif key == b'd': self.camera.move_right(self.step_size)
         # Reset view
         elif key == b'r': self.camera.reset()
+        # Change speed
+        elif key == b'z': self.draw_fps -= 1 if self.draw_fps > 0 else 0
+        elif key == b'x': self.draw_fps += 1
 
 
 
 
     def mouse_button(self, button, mode, x, y):
-        """
-        Callback to handle mouse clicks
-        """
-        print("mb:", button, mode, x, y)
-
+        '''
+        Mouse click callback
+        '''
         if mode == GLUT_DOWN:
             self.mouse_down = True
             self.mouse_start = (x, y)
@@ -374,18 +364,21 @@ class PointCloudViewer:
 
 
     def mouse_motion(self, x, y):
-        """
-        Callback to handle mouse motion
-        """
-        print("mm:", x, y)
+        '''
+        Mouse motion callback
+        '''
+        self.camera.rotate_camera_right((x - self.mouse_start[0])*0.001)
+        self.camera.rotate_camera_up((y - self.mouse_start[1])*0.001)
+        self.mouse_start = (x, y)
+
 
 
 
 
     def draw_axes(self):
-        """
-        Draws points at origin to help with debugging
-        """
+        '''
+        Draws x, y, and z axes
+        '''
         glBegin(GL_LINES)
         glColor3f(1, 1, 0)      # x-axis
         glVertex3f(-1000, 0, 0)
@@ -401,22 +394,10 @@ class PointCloudViewer:
 
 
 
-    def draw_point_cloud(self):
-        """
-        Draws all spheres in the pointcloud
-        """
-        self.set_fps()
-        xs, ys, zs = self.pointclouds[self.get_frame()]
-        glColor3f(1, 0, 0)
-        for i in range(0, len(xs), 1):
-            glPushMatrix()
-            glTranslatef(xs[i], ys[i], zs[i])
-            glutSolidSphere(0.008, 5, 5)
-            glPopMatrix()
-
-
-
     def set_fps(self):
+        '''
+        Set the window title to the current FPS
+        '''
         seconds = time.time()
         if (seconds - self.last_draw >= 1):
             self.last_draw = seconds
@@ -425,8 +406,15 @@ class PointCloudViewer:
         self.fps += 1
 
 
+
+
     def get_frame(self):
+        '''
+        Return the frame to draw based on the set fps
+        '''
         now = time.time()
+        if self.draw_fps == 0:
+            return self.frame
         if (now - self.last_frame_change) > 1.0/self.draw_fps:
             self.frame = 0 if self.frame == self.num_frames-1 else self.frame + 1
             self.last_frame_change = now
@@ -434,45 +422,14 @@ class PointCloudViewer:
 
 
 
-def get_point_clouds():
-    depth_ims = np.load('depth_im.npy')
-    pointclouds = []
-    mean_z = np.mean(depth_ims[depth_ims > 0])
-    for i in range(depth_ims.shape[0]):
-        xs, ys, zs = [], [], []
-        nonzeros = np.nonzero(depth_ims[i])
-        for y, x in zip(nonzeros[0], nonzeros[1]):
-            xs.append((x-300)/100.0)
-            ys.append(-(y-200)/100.0)
-            z = depth_ims[i, y, x]
-            zs.append((z - mean_z)/1000.0)
-        pointclouds.append((xs, ys, zs))
-
 
 if __name__ == '__main__':
-    pointclouds = None
-    optical_flow = None
-
     # import ntu_rgb
     # dataset = ntu_rgb.NTU()
-
-    # Point clouds
-    # pickle.dump(pointclouds, open('cache/pointclouds.pickle', 'wb'))
-    # pointclouds = pickle.load(open('cache/pointclouds.pickle', 'rb'))
-
-    # Optical Flow
     # optical_flow = dataset.get_3D_optical_flow(0)
-    # pickle.dump(optical_flow, open('cache/optical_flow.pickle', 'wb'))
-    optical_flow = pickle.load(open('cache/op_flow_3D_0.pickle', 'rb'))
 
-    viewer = PointCloudViewer(pointclouds=pointclouds, op_flow=optical_flow)
+    # Use cached file
+    optical_flow = pickle.load(open('cache/op_flow_3D_4.pickle', 'rb'))
+
+    viewer = OpticalFlowViewer(optical_flow)
     viewer.view()
-
-
-
-
-
-
-
-
-
