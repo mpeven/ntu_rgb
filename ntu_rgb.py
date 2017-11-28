@@ -338,7 +338,7 @@ class NTU:
         prev_frame = vid[0]
         flow = None
         flow_maps = np.zeros([len(vid) - 1, 2, vid.shape[1], vid.shape[2]])
-        for kk in range(1,len(vid)-1):
+        for kk in tqdm(range(1,len(vid)-1), "Building 2D optical flow tensor"):
             flow = cv2.calcOpticalFlowFarneback(vid[kk-1], vid[kk], flow, 0.4,
                 1, 15, 3, 8, 1.2, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
             flow_maps[kk-1,0,:,:] = flow[:,:,0].copy()
@@ -430,14 +430,12 @@ class NTU:
         print("Getting 2D optical flow.", end="")
         op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
         print(" Done {}".format(dt.datetime.now() - start))
-        start = dt.datetime.now()
-        print("Building 3D optical flow.", end="")
 
         # Build list of framewise 3D optical flow vectors
         op_flow_3D = []
 
         # Note: starting at frame 2 (flow maps start at previous frame)
-        for frame in range(1, op_flow_2D.shape[0]):
+        for frame in tqdm(range(1, op_flow_2D.shape[0]), "Building 3D optical flow tensor"):
             # Only look at non-zero rgb points
             rgb_nonzero = np.nonzero(rgb_3D[frame,:,:,2])
             flow_vectors = []
@@ -471,7 +469,6 @@ class NTU:
             op_flow_3D[frame][:,1] -= m[1]
             op_flow_3D[frame][:,2] -= m[2]
 
-        print(" Done {}".format(dt.datetime.now() - start))
         return op_flow_3D
 
 
