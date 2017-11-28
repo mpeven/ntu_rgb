@@ -5,6 +5,7 @@
 sftp-config.json
 
 # Cached files
+cache/
 *.lprof
 *.npy
 *.pkl

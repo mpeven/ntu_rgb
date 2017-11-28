@@ -27,6 +27,7 @@ import cv2
 import av
 import scipy, scipy.optimize, scipy.ndimage
 import line_profiler
+import datetime as dt
 import re
 from tqdm import tqdm
 from prompter import yesno
@@ -165,6 +166,70 @@ class NTU:
                 return pickle.load(open('cache/metadata.pkl', 'rb'))
         else:
             print('cache/metadata.pkl not found. Use load() to load metadata')
+
+
+
+
+    def check_cache(self, item_type, vid_id):
+        '''
+        Checks the cache folder for the item requested
+
+        Returns
+        -------
+        cached_item : The requested item (if found) or False (if not found)
+        '''
+        cached_files = os.listdir(os.path.join(os.curdir, 'cache', item_type))
+        file_prefix = os.path.join(os.curdir, 'cache', item_type, '{:05}'.format(vid_id))
+
+        # Pickle
+        if '{:05}.pickle'.format(vid_id) in cached_files:
+            print("Loading {}/{:05}.pickle from cache".format(item_type, vid_id))
+            return pickle.load(open(file_prefix + '.pickle', 'rb'))
+
+        # Numpy (uncompressed)
+        elif '{:05}.npy'.format(vid_id) in cached_files:
+            print("Loading {}/{:05}.npy from cache".format(item_type, vid_id))
+            return np.load(file_prefix + '.npy')
+
+        # Numpy (compressed)
+        elif '{:05}.npz'.format(vid_id) in cached_files:
+            print("Loading {}/{:05}.npz from cache".format(item_type, vid_id))
+            return np.load(file_prefix + '.npz')
+
+        # Not found
+        else:
+            return False
+
+
+
+
+
+    def cache(self, item, item_type, vid_id, compress=False):
+        '''
+        Saves the item in the cache folder
+        '''
+        print("Caching {}/{:05}".format(item_type, vid_id))
+
+        # Item already cached
+        cached_files = os.listdir(os.path.join(os.curdir, 'cache', item_type))
+        cached_vid_ids = [os.path.splitext(path)[0] for path in cached_files]
+        if '{:05}'.format(vid_id) in cached_vid_ids:
+            print("{}/{:05} already cached, skipping".format(item_type, vid_id))
+            return
+
+        file_prefix = os.path.join(os.curdir, 'cache', item_type, '{:05}'.format(vid_id))
+
+        # Use numpy save if a numpy object
+        if type(item) == np.ndarray:
+            if compress:
+                np.savez_compressed(file_prefix + '.npz', item)
+            else:
+                np.save(file_prefix + '.npy', item)
+
+        # Use pickle on all other objects
+        else:
+            pickle.dump(item, open(file_prefix + '.pickle', 'wb'))
+
 
 
 
@@ -411,24 +476,71 @@ class NTU:
 
 
 
-    def get_voxel_flow(self, vid_id):
-        '''
-        Get 3D optical flow constrained to a voxel grid
-        '''
-        VOXEL_SIZE = 150
 
-        # op_flow_3D = self.get_3D_optical_flow(vid_id)
-        op_flow_3D = pickle.load(open('cache/op_flow_3D_0.pickle', 'rb'))
+    def get_voxel_flow(self, vid_id, cache=False):
+        '''
+        Get voxelized 3D optical flow tensor (sparse)
 
+        Returns
+        -------
+        voxel_flow : ndarray, shape [video frames,  100,  100,  100,  4]
+            3 is for dx, dy, dz
+        '''
+        VOXEL_SIZE = 100
+
+        # Check cache for voxel flow
+        voxel_flow = self.check_cache('voxel_flow', vid_id)
+        if voxel_flow != False:
+            return voxel_flow
+
+        # Check cache for 3D optical flow
+        op_flow_3D = self.check_cache('optical_flow_3D', vid_id)
+        if op_flow_3D == False:
+            op_flow_3D = self.get_3D_optical_flow(vid_id)
+
+        # Pull useful stats out of optical flow
         num_frames = len(op_flow_3D)
+        all_xyz = np.array([flow[0:3] for frame in op_flow_3D for flow in frame])
+        max_x, max_y, max_z = np.max(all_xyz, axis=0) + 0.00001
+        min_x, min_y, min_z = np.min(all_xyz, axis=0)
 
+        voxel_flow_dicts = []
         # Backwards fill-in of voxel grid
-        voxel_flow = np.zeros([VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE])
-        for frame in op_flow_3D
-            for x in range(VOXEL_SIZE):
-                for y in range(VOXEL_SIZE):
-                    for z in range(VOXEL_SIZE):
-                        voxel_flow[x,y,z] =
+        for frame in tqdm(range(num_frames), "Filling in Voxel Grid"):
+
+            # Interpolate and discretize location of the voxels in the grid
+            vox_x = np.floor((op_flow_3D[frame][:,0] - min_x)/(max_x - min_x) * VOXEL_SIZE).astype(int)
+            vox_y = np.floor((op_flow_3D[frame][:,1] - min_y)/(max_y - min_y) * VOXEL_SIZE).astype(int)
+            vox_z = np.floor((op_flow_3D[frame][:,2] - min_z)/(max_z - min_z) * VOXEL_SIZE).astype(int)
+
+            # Get unique tuples of voxels, then average the flow vectors at each voxel
+            filled_voxels = set([(a,b,c) for a,b,c in np.stack([vox_x,vox_y,vox_z]).T])
+
+            # Get the average displacement vector in each voxel
+            num_disp_vecs = {tup: 0.0 for tup in filled_voxels}
+            sum_disp_vecs = {tup: np.zeros([3]) for tup in filled_voxels}
+            avg_disp_vecs = {tup: np.zeros([3]) for tup in filled_voxels}
+            for i in range(len(op_flow_3D[frame])):
+                num_disp_vecs[(vox_x[i], vox_y[i], vox_z[i])] += 1.0
+                sum_disp_vecs[(vox_x[i], vox_y[i], vox_z[i])] += op_flow_3D[frame][i,3:]
+
+            for tup in filled_voxels:
+                avg_disp_vecs[tup] = sum_disp_vecs[tup]/num_disp_vecs[tup]
+
+            voxel_flow_dicts.append(avg_disp_vecs)
+
+        # Turn voxel flow into numpy tensor
+        voxel_flow_tensor = np.zeros([num_frames, VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE, 4])
+        for frame in range(num_frames):
+            for vox, disp_vec in voxel_flow_dicts[frame].items():
+                voxel_flow_tensor[frame, vox[0], vox[1], vox[2], 0] = 1.0
+                voxel_flow_tensor[frame, vox[0], vox[1], vox[2], 1:] = disp_vec
+
+        # Cache the voxel flow
+        if cache:
+            self.cache(voxel_flow_tensor, 'voxel_flow', vid_id, compress=True)
+
+        return voxel_flow_tensor
 
 
 
@@ -583,8 +695,7 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    import pickle
-    for vid in range(2,60):
+    for vid in range(0,60):
         print("Video {}".format(vid))
-        op_flow_3D = dataset.get_3D_optical_flow(vid)
-        pickle.dump(op_flow_3D, open('cache/op_flow_3D_{}.pickle'.format(vid), 'wb'))
+        # op_flow_3D = dataset.get_3D_optical_flow(vid)
+        voxel_flow = dataset.get_voxel_flow(vid, cache=True)
