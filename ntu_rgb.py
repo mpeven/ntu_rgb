@@ -32,6 +32,7 @@ import re
 from tqdm import tqdm
 from prompter import yesno
 import pickle
+from progress_meter import ProgressMeter
 
 
 
@@ -422,14 +423,11 @@ class NTU:
         '''
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
-        start = dt.datetime.now()
-        print("Getting rgb 3D map.", end="")
+        spinning_cursor = ProgressMeter()
+        spinning_cursor.start("Getting rgb 3D map.", timer=True)
         rgb_3D = _rgb_3D if _rgb_3D is not None else self.get_rgb_3D_maps(vid_id)
-        print(" Done {}".format(dt.datetime.now() - start))
-        start = dt.datetime.now()
-        print("Getting 2D optical flow.", end="")
+        spinning_cursor.stop()
         op_flow_2D = _op_flow_2D if _op_flow_2D is not None else self.get_2D_optical_flow(vid_id)
-        print(" Done {}".format(dt.datetime.now() - start))
 
         # Build list of framewise 3D optical flow vectors
         op_flow_3D = []
