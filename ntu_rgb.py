@@ -171,29 +171,33 @@ class NTU:
 
 
 
-    def check_cache(self, item_type, vid_id):
+    def check_cache(self, item_type, vid_id, existence=False):
         '''
         Checks the cache folder for the item requested
 
         Returns
         -------
         cached_item : The requested item (if found) or False (if not found)
+            - If existence is True : only returns True or False
         '''
         cached_files = os.listdir(os.path.join(os.curdir, 'cache', item_type))
         file_prefix = os.path.join(os.curdir, 'cache', item_type, '{:05}'.format(vid_id))
 
         # Pickle
         if '{:05}.pickle'.format(vid_id) in cached_files:
+            if existence: return True
             print("Loading {}/{:05}.pickle from cache".format(item_type, vid_id))
             return pickle.load(open(file_prefix + '.pickle', 'rb'))
 
         # Numpy (uncompressed)
         elif '{:05}.npy'.format(vid_id) in cached_files:
+            if existence: return True
             print("Loading {}/{:05}.npy from cache".format(item_type, vid_id))
             return np.load(file_prefix + '.npy')
 
         # Numpy (compressed)
         elif '{:05}.npz'.format(vid_id) in cached_files:
+            if existence: return True
             print("Loading {}/{:05}.npz from cache".format(item_type, vid_id))
             return np.load(file_prefix + '.npz')['arr_0']
 
@@ -397,9 +401,7 @@ class NTU:
 
         # Fill in the rest of the sparse matrix
         invalid = (rgb_xyz_sparse == 0)
-        ind = scipy.ndimage.distance_transform_edt(invalid,
-                                                   return_distances=False,
-                                                   return_indices=True)
+        ind = scipy.ndimage.distance_transform_edt(invalid, return_distances=False, return_indices=True)
         rgb_xyz = rgb_xyz_sparse[tuple(ind)]
 
         # Remove background values by zeroing them out
@@ -484,14 +486,15 @@ class NTU:
         VOXEL_SIZE = 100
 
         # Check cache for voxel flow
-        voxel_flow = self.check_cache('voxel_flow', vid_id)
-        if voxel_flow is not None:
-            return
-            # return voxel_flow
+        if self.check_cache('voxel_flow', vid_id, existence=True):
+            print("Found voxel flow {:05} in cache".format(vid_id))
+            return None
+            # return self.check_cache('voxel_flow', vid_id)
 
         # Check cache for 3D optical flow
-        op_flow_3D = self.check_cache('optical_flow_3D', vid_id)
-        if op_flow_3D == False:
+        if self.check_cache('optical_flow_3D', vid_id, existence=True):
+            op_flow_3D = self.check_cache('optical_flow_3D', vid_id)
+        else:
             op_flow_3D = self.get_3D_optical_flow(vid_id)
 
         # Pull useful stats out of optical flow
@@ -536,6 +539,7 @@ class NTU:
         if cache:
             self.cache(voxel_flow_tensor, 'voxel_flow', vid_id, compress=True)
 
+        return None
         # return voxel_flow_tensor
 
 
@@ -691,7 +695,5 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    import multiprocessing
-    pool = multiprocessing.Pool(multiprocessing.cpu_count()*2)
-    all_vids = [x for x in range(num_vids)]
-    pool.map(dataset.get_voxel_flow, all_vids)
+    for vid in range(dataset.num_vids):
+        dataset.get_voxel_flow(vid)
