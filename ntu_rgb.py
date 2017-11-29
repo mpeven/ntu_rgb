@@ -472,7 +472,7 @@ class NTU:
 
 
 
-    def get_voxel_flow(self, vid_id, cache=False):
+    def get_voxel_flow(self, vid_id, cache=True):
         '''
         Get voxelized 3D optical flow tensor (sparse)
 
@@ -486,7 +486,8 @@ class NTU:
         # Check cache for voxel flow
         voxel_flow = self.check_cache('voxel_flow', vid_id)
         if voxel_flow is not None:
-            return voxel_flow
+            return
+            # return voxel_flow
 
         # Check cache for 3D optical flow
         op_flow_3D = self.check_cache('optical_flow_3D', vid_id)
@@ -535,7 +536,7 @@ class NTU:
         if cache:
             self.cache(voxel_flow_tensor, 'voxel_flow', vid_id, compress=True)
 
-        return voxel_flow_tensor
+        # return voxel_flow_tensor
 
 
 
@@ -690,7 +691,7 @@ class NTU:
 
 if __name__ == '__main__':
     dataset = NTU()
-    for vid in range(0,60):
-        print("Video {}".format(vid))
-        # op_flow_3D = dataset.get_3D_optical_flow(vid)
-        voxel_flow = dataset.get_voxel_flow(vid, cache=True)
+    import multiprocessing
+    pool = multiprocessing.Pool(multiprocessing.cpu_count()*2)
+    all_vids = [x for x in range(num_vids)]
+    pool.map(dataset.get_voxel_flow, all_vids)
