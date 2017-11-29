@@ -6,7 +6,10 @@ from ntu_rgb import NTU
 
 dataset = NTU()
 
-voxel_flow = dataset.get_voxel_flow(0)
-viewer = OpenGlViewer(voxel_flow)
-
+all_voxels = []
+for vid in range(15):
+    all_voxels.append(dataset.get_voxel_flow(vid))
+voxel_flow = np.concatenate(all_voxels)
+print(voxel_flow.shape)
+viewer = OpenGlViewer(voxel_flow, record=True)
 viewer.view()

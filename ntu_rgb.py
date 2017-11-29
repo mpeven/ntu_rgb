@@ -195,11 +195,11 @@ class NTU:
         # Numpy (compressed)
         elif '{:05}.npz'.format(vid_id) in cached_files:
             print("Loading {}/{:05}.npz from cache".format(item_type, vid_id))
-            return np.load(file_prefix + '.npz')
+            return np.load(file_prefix + '.npz')['arr_0']
 
         # Not found
         else:
-            return False
+            return None
 
 
 
@@ -485,7 +485,7 @@ class NTU:
 
         # Check cache for voxel flow
         voxel_flow = self.check_cache('voxel_flow', vid_id)
-        if voxel_flow != False:
+        if voxel_flow is not None:
             return voxel_flow
 
         # Check cache for 3D optical flow

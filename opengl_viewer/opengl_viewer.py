@@ -3,6 +3,7 @@ import datetime as dt
 import time
 import numpy as np
 from tqdm import tqdm
+from PIL import Image
 
 from OpenGL.GLUT import *
 from OpenGL.GLU import *
@@ -22,11 +23,12 @@ rotation_angle0 = 2 * np.pi/180
 
 
 class OpenGlViewer:
-    def __init__(self, op_flow):
+    def __init__(self, op_flow, record=False):
+        self.record = record
         self.last_frame_change = time.time()
         self.last_draw = time.time()
         self.frame = 0
-        self.draw_fps = 8
+        self.draw_fps = 20
         self.fps = 0
         self.last_key   = None
         self.last_key_t = dt.datetime.now()
@@ -42,6 +44,7 @@ class OpenGlViewer:
         # self.op_flow = Optical_flow_3D(op_flow)
         self.op_flow = Voxel_Flow_3D(op_flow)
         self.num_frames = self.op_flow.num_frames
+        print(self.num_frames)
         self.buffers = None
 
 
@@ -50,6 +53,14 @@ class OpenGlViewer:
         '''
         Callback to draw everything in the glut windows
         '''
+
+        # Only change camera angle if frame isn't different
+        if self.frame == self.get_frame():
+            glMatrixMode(GL_MODELVIEW)
+            glLoadIdentity()
+            gluLookAt(*self.camera.get_viewing_matrix())
+            return
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glMatrixMode(GL_MODELVIEW)
         glLoadIdentity()
@@ -66,6 +77,14 @@ class OpenGlViewer:
         glFlush()
         glutSwapBuffers()
 
+        if self.record:
+            screenshot = glReadPixels(0,0,width,height,GL_RGB,GL_UNSIGNED_BYTE)
+            image = Image.frombytes("RGB", (width, height), screenshot)
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            image.save('screenshots/frame_{:05}.jpg'.format(self.frame))
+            print(self.frame)
+            if self.frame == (self.num_frames - 1):
+                glutLeaveMainLoop()
 
 
 
@@ -143,7 +162,7 @@ class OpenGlViewer:
         glEnable(GL_TEXTURE_2D)
         glShadeModel(GL_SMOOTH)
 
-        # Enter loop - never to return
+        # Enter main loop - returns on glutLeaveMainLoop
         glutMainLoop()
 
 

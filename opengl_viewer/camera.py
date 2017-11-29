@@ -1,8 +1,8 @@
 
 import numpy as np
 
-xyz0     = np.array([0., .5, -3.])
-forward0 = np.array([0., 0., 1.])
+xyz0     = np.array([-.02, .15, -2.])
+forward0 = np.array([0., -0.05, 1.])
 up0      = np.array([0., 1., 0.])
 
 class Camera:
