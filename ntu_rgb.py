@@ -693,7 +693,194 @@ class NTU:
         return skeleton_df
 
 
+
+
+
+
+    def get_voxel_flow_full(self, vid_id):
+        ''' Create a voxel grid with displacement vectors '''
+
+        ##############################################################
+        # Create a map from rgb pixels to the depth camera xyz coordinate at
+        # that pixel.
+        #
+        # rgb_xyz : ndarray, shape [#frames,  1080,  1920,  3]
+        ##############################################################
+
+        # Get metadata - for rotation and translation matrices
+        for metadatum in self.metadata:
+            if metadatum['video_index'] == vid_id:
+                m = metadatum
+                break
+
+        # Get depth images
+        depth_ims = self.get_depth_images(vid_id)
+        depth_ims = depth_ims.astype(np.float32)/1000.0
+
+        # Make background negative so can discriminate between background
+        # and empty values
+        depth_ims[depth_ims == 0] = -1000
+
+        # Constants - image size
+        frames, H_depth, W_depth = depth_ims.shape
+        W_rgb, H_rgb = 1920, 1080
+
+        # Depth --> Depth-camera coordinates
+        Y, X = np.mgrid[0:H_depth, 0:W_depth]
+        x_3D = (X - cx_d) * depth_ims / fx_d
+        y_3D = (Y - cy_d) * depth_ims / fy_d
+
+        # Apply rotation and translation
+        xyz_d = np.stack([x_3D, y_3D, depth_ims], axis=3)
+        xyz_rgb = m['T']*m['scale'] + m['R'] @ xyz_d[:,:,:,:,np.newaxis]
+
+        # RGB-camera coordinates --> RGB pixel coordinates
+        x_rgb = (xyz_rgb[:,:,:,0] * rgb_mat[0,0] / xyz_rgb[:,:,:,2]) + rgb_mat[0,2]
+        y_rgb = (xyz_rgb[:,:,:,1] * rgb_mat[1,1] / xyz_rgb[:,:,:,2]) + rgb_mat[1,2]
+        x_rgb[x_rgb >= W_rgb] = 0
+        y_rgb[y_rgb >= H_rgb] = 0
+
+        # Fill in sparse array
+        rgb_xyz_sparse = np.zeros([frames, H_rgb, W_rgb, 3])
+        for frame in range(frames):
+            for y in range(H_depth):
+                for x in range(W_depth):
+                    rgb_xyz_sparse[frame, int(y_rgb[frame,y,x]), int(x_rgb[frame,y,x])] = xyz_d[frame, y, x]
+
+        # Fill in the rest of the sparse matrix
+        invalid = (rgb_xyz_sparse == 0)
+        ind = scipy.ndimage.distance_transform_edt(invalid, return_distances=False, return_indices=True)
+        rgb_xyz = rgb_xyz_sparse[tuple(ind)]
+
+        # Remove background values by zeroing them out
+        rgb_xyz[rgb_xyz[:,:,:,2] < 0] = 0
+
+        ##############################################################
+        ##############################################################
+
+
+
+
+        ##############################################################
+        # Create 2D optical flow vectors for a video in an ndarray of size:
+        #    [video_frames - 1 * 2 * vid_height * vid_width]
+        ##############################################################
+
+        vid = self.get_rgb_vid_images(vid_id, True)
+        prev_frame = vid[0]
+        flow = None
+        op_flow_2D = np.zeros([len(vid) - 1, 2, vid.shape[1], vid.shape[2]])
+        for kk in tqdm(range(1,len(vid)-1), "Building 2D optical flow tensor"):
+            flow = cv2.calcOpticalFlowFarneback(vid[kk-1], vid[kk], flow, 0.4,
+                1, 15, 3, 8, 1.2, cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+            op_flow_2D[kk-1,0,:,:] = flow[:,:,0].copy()
+            op_flow_2D[kk-1,1,:,:] = flow[:,:,1].copy()
+
+        ##############################################################
+        ##############################################################
+
+
+
+
+        ##############################################################
+        # Create 3D Optical flow
+        #
+        # op_flow_3D : list (length = #frames in video-1) of ndarrays
+        #    (shape: optical_flow_arrows * 6) (6 --> x,y,z,dx,dy,dz)
+        ##############################################################
+
+        # Build list of framewise 3D optical flow vectors
+        op_flow_3D = []
+
+        # Note: starting at frame 2 (flow maps start at previous frame)
+        for frame in tqdm(range(1, op_flow_2D.shape[0]), "Building 3D optical flow tensor"):
+            # Only look at non-zero rgb points
+            rgb_nonzero = np.nonzero(rgb_xyz[frame,:,:,2])
+            flow_vectors = []
+
+            for u, v in zip(rgb_nonzero[1], rgb_nonzero[0]):
+                # Get optical flow vector
+                du, dv = op_flow_2D[frame, :, v, u]
+
+                # Get start and end position in 3D using the flow map vector
+                p0 = rgb_xyz[frame - 1, int(v - dv), int(u - du)]
+                if p0[2] == 0: continue # Only want vectors that started at a non-zero point
+                p1 = rgb_xyz[frame, v, u]
+
+                # Get displacement vector (if norm is larger than theshold)
+                dp = np.array([0,0,0]) if np.linalg.norm([du,dv]) < 1.0 else p1 - p0
+
+                flow_vectors.append(np.concatenate([p0, dp]))
+
+            # Stack list of flow vectors into one array
+            op_flow_3D.append(np.stack(flow_vectors))
+
+        # Zero mean x y & z (the starting point)
+        all_vecs = np.concatenate(op_flow_3D)
+        m = np.mean(all_vecs, axis=0)
+        for frame in range(len(op_flow_3D)):
+            op_flow_3D[frame][:,0] -= m[0]
+            op_flow_3D[frame][:,1] -= m[1]
+            op_flow_3D[frame][:,2] -= m[2]
+
+        ##############################################################
+        ##############################################################
+
+
+
+
+
+        ##############################################################
+        # Map optical flow to a voxel grid
+        #
+        # voxel_flow : ndarray, shape [#frames,  100,  100,  100,  4]
+        ##############################################################
+
+        VOXEL_SIZE = 100
+
+        # Pull useful stats out of optical flow
+        num_frames = len(op_flow_3D)
+        all_xyz = np.array([flow[0:3] for frame in op_flow_3D for flow in frame])
+        max_x, max_y, max_z = np.max(all_xyz, axis=0) + 0.00001
+        min_x, min_y, min_z = np.min(all_xyz, axis=0)
+
+        voxel_flow_dicts = []
+        # Fill in the voxel grid
+        for frame in tqdm(range(num_frames), "Filling in Voxel Grid"):
+
+            # Interpolate and discretize location of the voxels in the grid
+            vox_x = np.floor((op_flow_3D[frame][:,0] - min_x)/(max_x - min_x) * VOXEL_SIZE).astype(int)
+            vox_y = np.floor((op_flow_3D[frame][:,1] - min_y)/(max_y - min_y) * VOXEL_SIZE).astype(int)
+            vox_z = np.floor((op_flow_3D[frame][:,2] - min_z)/(max_z - min_z) * VOXEL_SIZE).astype(int)
+
+            # Get unique tuples of voxels, then average the flow vectors at each voxel
+            filled_voxels = set([(a,b,c) for a,b,c in np.stack([vox_x,vox_y,vox_z]).T])
+
+            # Get the average displacement vector in each voxel
+            num_disp_vecs = {tup: 0.0 for tup in filled_voxels}
+            sum_disp_vecs = {tup: np.zeros([3]) for tup in filled_voxels}
+            avg_disp_vecs = {tup: np.zeros([3]) for tup in filled_voxels}
+            for i in range(len(op_flow_3D[frame])):
+                num_disp_vecs[(vox_x[i], vox_y[i], vox_z[i])] += 1.0
+                sum_disp_vecs[(vox_x[i], vox_y[i], vox_z[i])] += op_flow_3D[frame][i,3:]
+
+            for tup in filled_voxels:
+                avg_disp_vecs[tup] = sum_disp_vecs[tup]/num_disp_vecs[tup]
+
+            voxel_flow_dicts.append(avg_disp_vecs)
+
+        # Turn voxel flow into numpy tensor
+        voxel_flow_tensor = np.zeros([num_frames, VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE, 4])
+        for frame in range(num_frames):
+            for vox, disp_vec in voxel_flow_dicts[frame].items():
+                voxel_flow_tensor[frame, vox[0], vox[1], vox[2], 0] = 1.0
+                voxel_flow_tensor[frame, vox[0], vox[1], vox[2], 1:] = disp_vec
+
+        return voxel_flow_tensor
+
+
 if __name__ == '__main__':
     dataset = NTU()
-    for vid in range(dataset.num_vids):
-        dataset.get_voxel_flow(vid)
+    # for vid in range(dataset.num_vids):
+        # dataset.get_voxel_flow(vid)
+    dataset.get_voxel_flow_full(0)
