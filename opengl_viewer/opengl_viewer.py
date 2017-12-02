@@ -25,7 +25,7 @@ rotation_angle0 = 2 * np.pi/180
 class OpenGlViewer:
     def __init__(self, op_flow, record=False):
         self.record = record
-        self.last_frame_change = time.time()
+        self.last_frame_change = time.time() + 5
         self.last_draw = time.time()
         self.frame = 0
         self.draw_fps = 20
@@ -44,7 +44,6 @@ class OpenGlViewer:
         # self.op_flow = Optical_flow_3D(op_flow)
         self.op_flow = Voxel_Flow_3D(op_flow)
         self.num_frames = self.op_flow.num_frames
-        print(self.num_frames)
         self.buffers = None
 
 
@@ -81,7 +80,9 @@ class OpenGlViewer:
             screenshot = glReadPixels(0,0,width,height,GL_RGB,GL_UNSIGNED_BYTE)
             image = Image.frombytes("RGB", (width, height), screenshot)
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
-            image.save('screenshots/frame_{:05}.jpg'.format(self.frame))
+            import glob
+            frame_num = len(glob.glob('/Users/mpeven/Documents/PhD/Activity_Recognition/screenshots/*'))
+            image.save('screenshots/frame_{:05}.jpg'.format(frame_num))
             print(self.frame)
             if self.frame == (self.num_frames - 1):
                 glutLeaveMainLoop()
