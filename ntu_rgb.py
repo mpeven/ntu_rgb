@@ -24,14 +24,13 @@ Functions:
     gets 2D optical flow maps
 -
 '''
-import os, glob
+import sys, os, glob
 import numpy as np
-import numba as nb
 import pandas as pd
 import cv2
 import av
 import scipy, scipy.optimize, scipy.ndimage
-import line_profiler
+# import line_profiler
 import datetime as dt
 import re
 from tqdm import tqdm
@@ -52,6 +51,7 @@ skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
 # Cache path
 dir_path         = os.path.dirname(os.path.realpath(__file__))
 cache_dir        = os.path.join(dir_path, 'cache')
+op_flow_3D_cache = "/hdd/Datasets/NTU/nturgb+d_optical_flow_3D"
 
 
 
@@ -172,6 +172,10 @@ class NTU:
         -------
         metadata : A list of dicts with information about the videos
         '''
+        # TODO: remove
+        return pickle.load(open(os.path.join(cache_dir, 'metadata.pickle'), 'rb'))
+        ##############
+
         if 'metadata.pickle' in os.listdir(cache_dir):
             if yesno('metadata.pickle found in cache. Use this file?'):
                 self.skip_load = True
@@ -185,7 +189,7 @@ class NTU:
 
 
 
-    def check_cache(self, item_type, vid_id, existence=False):
+    def check_cache(self, item_type, vid_id, existence=False, cached_files_dir=None):
         '''
         Checks the cache folder for the item requested
 
@@ -195,33 +199,41 @@ class NTU:
             - The requested item (if found) or False (if not found)
             - If existence is True : only returns True or False
         '''
-        try:
-            cached_files = os.listdir(os.path.join(cache_dir, item_type))
-        except(FileNotFoundError):
-            return None
-        file_prefix = os.path.join(cache_dir, item_type, '{:05}'.format(vid_id))
 
-        # Pickle
-        if '{:05}.pickle'.format(vid_id) in cached_files:
-            if existence: return True
-            print("Loading {}/{:05}.pickle from cache".format(item_type, vid_id))
-            return pickle.load(open(file_prefix + '.pickle', 'rb'))
-
-        # Numpy (uncompressed)
-        elif '{:05}.npy'.format(vid_id) in cached_files:
-            if existence: return True
-            print("Loading {}/{:05}.npy from cache".format(item_type, vid_id))
-            return np.load(file_prefix + '.npy')
-
-        # Numpy (compressed)
-        elif '{:05}.npz'.format(vid_id) in cached_files:
-            if existence: return True
-            print("Loading {}/{:05}.npz from cache".format(item_type, vid_id))
-            return np.load(file_prefix + '.npz')['arr_0']
-
-        # Not found
+        # Get full path without extension of file
+        if cached_files_dir is None:
+            cached_file_prefix = os.path.join(cache_dir, item_type, '{:05}'.format(vid_id))
         else:
+            cached_file_prefix = os.path.join(cached_files_dir, '{:05}'.format(vid_id))
+
+        # Check all extensions to find if file exists
+        file_found = False
+        for ext in ['.pickle', '.npy', '.npz']:
+            cached_file_path = cached_file_prefix + ext
+            if os.path.isfile(cached_file_path):
+                file_found = True
+                break
+
+        # Return boolean if parameter set
+        if existence:
+            return file_found
+
+        # Return none if not found
+        if not file_found:
             return None
+
+        # File found, load it correctly based on extension
+        # print("Loading {} from cache".format(cached_file_path))
+        if ext == '.pickle':
+            return pickle.load(open(cached_file_path, 'rb'))
+        elif ext == '.npy':
+            return np.load(cached_file_path)
+        elif ext == '.npz':
+            return np.load(cached_file_path)['arr_0']
+
+        # Shouldn't get this far
+        raise FileNotFoundError("Reached end of control flow - something went wrong")
+        return None
 
 
 
@@ -437,13 +449,16 @@ class NTU:
 
         # Build rgb 3D coordinate tensor
         rgb_xyz = np.zeros([frames, H_rgb, W_rgb, 3]).astype(np.float32)
-        for frame in tqdm(range(frames), "Building rgb 3D-coordinate tensor"):
+        for frame in tqdm(range(frames),
+                          "Building rgb 3D-coordinate tensor {}".format(vid_id)):
             # Fill tensor with sparse values
-            rgb_xyz[frame, y_rgb[frame, :, :, 0], x_rgb[frame, :, :, 0]] = xyz_d[frame]
+            rgb_xyz[frame, y_rgb[frame,:,:,0], x_rgb[frame,:,:,0]] = xyz_d[frame]
 
             # Interpolate to fill in the rest of the tensor
             empty = (rgb_xyz[frame] == 0)
-            ind = scipy.ndimage.distance_transform_edt(empty, return_distances=False, return_indices=True)
+            ind = scipy.ndimage.distance_transform_edt(empty,
+                                                       return_distances=False,
+                                                       return_indices=True)
 
             # Set the values
             rgb_xyz[frame] = rgb_xyz[frame, ind[0], ind[1], ind[2]]
@@ -468,9 +483,11 @@ class NTU:
         '''
 
         # Check cache for optical flow
-        if self.check_cache('optical_flow_3D', vid_id, existence=True):
+        if self.check_cache('optical_flow_3D', vid_id, existence=True,#):
+                            cached_files_dir=op_flow_3D_cache): # If marcc dump on hdd
             print("Found 3D optical flow {:05} in cache".format(vid_id))
-            return
+            return self.check_cache('optical_flow_3D', vid_id, existence=False,#)
+                                cached_files_dir=op_flow_3D_cache) # If marcc dump on hdd
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
         rgb_xyz = self.get_rgb_3D_maps(vid_id)
@@ -480,17 +497,26 @@ class NTU:
         op_flow_3D = []
 
         # Note: 2D optical flow goes from frame t to t+1
-        for frame in tqdm(range(op_flow_2D.shape[0]), "Building 3D optical flow tensor"):
+        for frame in tqdm(range(op_flow_2D.shape[0]),
+                          "Building 3D optical flow tensor {}".format(vid_id)):
             # Get the points in frame t+1
             p1 = np.nonzero(rgb_xyz[frame+1,:,:,2])
 
             # Get the starting vector p0 from frame t
-            du = op_flow_2D[frame, :, p1[0], p1[1]][:,0]
-            dv = op_flow_2D[frame, :, p1[0], p1[1]][:,1]
-            p0 = rgb_xyz[frame, (p1[0] - dv).astype(int), (p1[1] - du).astype(int)]
+            dudv = op_flow_2D[frame, :, p1[0], p1[1]][:,:]
+            p0u = p1[1] - dudv[:,0]
+            p0v = p1[0] - dudv[:,1]
+
+            # Clip to pixels
+            p0v = np.clip(p0v, 0, 1079).astype(int)
+            p0u = np.clip(p0u, 0, 1919).astype(int)
+
+            # Get the points in frame t
+            p0 = rgb_xyz[frame, p0v, p0u]
 
             # Get the displacement vector between p(t) and p(t+1)
             disp_vecs = rgb_xyz[frame+1, p1[0], p1[1]] - p0
+            disp_vecs[np.sum(dudv, axis=1) < 0.5] = np.array([0,0,0])
 
             # Combine start (x,y,z) and displacement (dx,dy,dz) into ndarray
             start_disp = np.hstack([p0, disp_vecs])
@@ -513,46 +539,51 @@ class NTU:
             op_flow_3D_vec[idx,:lens[idx]] += frame
 
         if cache:
-            self.cache(op_flow_3D_vec, 'optical_flow_3D_ndarray', vid_id, compress=True)
-            return
+            self.cache(op_flow_3D_vec, 'optical_flow_3D', vid_id, compress=True)
 
         return op_flow_3D
 
 
 
 
-
-    def get_voxel_flow(self, vid_id, cache=True):
+    def get_voxel_flow(self, vid_id, cache=False):
         '''
         Voxelize the 3D optical flow tensor (sparse)
 
+        Parameters
+        ----------
+        vid_id : int
+            The video to get the voxel flow for. {1-56879}
+        cache : bool, optional
+            Whether to cache the voxel flow after creating it.
+
         Returns
         -------
-        voxel_flow : ndarray, shape [video frames,  100,  100,  100,  4]
-            3 is for dx, dy, dz
+        voxel_flow_tensor : ndarray
+            The voxel flow for the video, shape [frames,  4,  100,  100,  100].
+            The 4 values in the 2nd dimension are 0: {0,1} indicating voxel is
+            filled, 1-3: dx, dy, dz components of average optical flow at that
+            voxel
         '''
-        VOXEL_SIZE = 100
+        VOXEL_SIZE = 81
 
         # Check cache for voxel flow
-        if self.check_cache('voxel_flow', vid_id, existence=True):
+        if self.check_cache('voxel_flow_{}'.format(VOXEL_SIZE), vid_id, existence=True):
             print("Found voxel flow {:05} in cache".format(vid_id))
-            return self.check_cache('voxel_flow', vid_id)
+            return self.check_cache('voxel_flow_{}'.format(VOXEL_SIZE), vid_id)
 
-        # Check cache for 3D optical flow
-        if self.check_cache('optical_flow_3D', vid_id, existence=True):
-            op_flow_3D = self.check_cache('optical_flow_3D', vid_id)
-        else:
-            op_flow_3D = self.get_3D_optical_flow(vid_id, cache=True)
+        # Get 3D optical flow
+        op_flow_3D = self.get_3D_optical_flow(vid_id, cache=True)
 
         # Pull useful stats out of optical flow
         num_frames = len(op_flow_3D)
-        all_xyz = np.array([flow for frame in op_flow_3D for flow in frame])
+        all_xyz = np.vstack(op_flow_3D)
         max_x, max_y, max_z = np.max(all_xyz, axis=0)[:3] + 0.00001
         min_x, min_y, min_z = np.min(all_xyz, axis=0)[:3]
 
         # Fill in the voxel grid
-        voxel_flow_tensor = np.zeros([num_frames, VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE, 4])
-        for frame in tqdm(range(num_frames), "Filling in Voxel Grid"):
+        voxel_flow_tensor = np.zeros([num_frames, 4, VOXEL_SIZE, VOXEL_SIZE, VOXEL_SIZE])
+        for frame in range(num_frames):#tqdm(range(num_frames), "Filling in Voxel Grid"):
 
             # Interpolate and discretize location of the voxels in the grid
             vox_x = np.floor((op_flow_3D[frame][:,0] - min_x)/(max_x - min_x) * VOXEL_SIZE).astype(int)
@@ -560,21 +591,20 @@ class NTU:
             vox_z = np.floor((op_flow_3D[frame][:,2] - min_z)/(max_z - min_z) * VOXEL_SIZE).astype(int)
 
             # Add all interpolated values to the correct location in the tensor
-            np.add.at(voxel_flow_tensor, (frame, vox_x, vox_y, vox_z, 0), 1)
-            np.add.at(voxel_flow_tensor, (frame, vox_x, vox_y, vox_z, 1), op_flow_3D[frame][:,3])
-            np.add.at(voxel_flow_tensor, (frame, vox_x, vox_y, vox_z, 2), op_flow_3D[frame][:,4])
-            np.add.at(voxel_flow_tensor, (frame, vox_x, vox_y, vox_z, 3), op_flow_3D[frame][:,5])
+            np.add.at(voxel_flow_tensor, (frame, 0, vox_x, vox_y, vox_z), 1)
+            np.add.at(voxel_flow_tensor, (frame, 1, vox_x, vox_y, vox_z), op_flow_3D[frame][:,3])
+            np.add.at(voxel_flow_tensor, (frame, 2, vox_x, vox_y, vox_z), op_flow_3D[frame][:,4])
+            np.add.at(voxel_flow_tensor, (frame, 3, vox_x, vox_y, vox_z), op_flow_3D[frame][:,5])
 
             # Average values
-            voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 1] /= voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 0]
-            voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 2] /= voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 0]
-            voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 3] /= voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 0]
-
-            voxel_flow_tensor[frame, vox_x, vox_y, vox_z, 0] = 1
+            voxel_flow_tensor[frame, 1, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            voxel_flow_tensor[frame, 2, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            voxel_flow_tensor[frame, 3, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z] = 1
 
         # Cache the voxel flow
         if cache:
-            self.cache(voxel_flow_tensor, 'voxel_flow', vid_id, compress=True)
+            self.cache(voxel_flow_tensor, 'voxel_flow_{}'.format(VOXEL_SIZE), vid_id, compress=True)
 
         return voxel_flow_tensor
 
@@ -730,13 +760,19 @@ class NTU:
 
 
 
+def create_voxel_flows():
+    dataset = NTU()
+    for vid in range(10):
+        dataset.get_voxel_flow(vid, cache=True)
+
 
 def create_all_voxel_flows():
     dataset = NTU()
-    for vid in range(dataset.num_vids):
+    for vid in range(5000):
         start = dt.datetime.now()
         dataset.get_voxel_flow(vid, cache=True)
         print("Total time: {}".format(dt.datetime.now() - start))
+
 
 def create_all_3D_op_flows():
     dataset = NTU()
@@ -746,4 +782,4 @@ def create_all_3D_op_flows():
         print("Total time: {}".format(dt.datetime.now() - start))
 
 if __name__ == '__main__':
-    create_all_3D_op_flows()
+    create_voxel_flows()

@@ -49,7 +49,7 @@ class Voxel_Flow_3D:
 
 
     def create_voxels(self, frame_idx):
-        non_zeros = np.nonzero(self.voxel_flow[frame_idx, :, :, :, 0])
+        non_zeros = np.nonzero(self.voxel_flow[frame_idx, 0, :, :, :])
         vertices = np.tile(cube_verts.copy(), (non_zeros[0].shape[0], 1))
         x = vertices[:,0] + np.repeat(non_zeros[0], 8)/100.0 - 0.5
         y = vertices[:,1] + np.repeat(non_zeros[1], 8)/-100.0 + 0.5
@@ -61,16 +61,16 @@ class Voxel_Flow_3D:
 
     def create_arrows(self, frame_idx):
         # Create array of optical flow vectors
-        non_zeros = np.nonzero(self.voxel_flow[frame_idx, :, :, :, 0])
+        non_zeros = np.nonzero(self.voxel_flow[frame_idx, 0, :, :, :])
         num_arrows = non_zeros[0].shape[0]
         op_flow = np.zeros([num_arrows, 6])
         for idx in range(num_arrows):
             x = non_zeros[0][idx]/100.0 - 0.5
             y = non_zeros[1][idx]/-100.0 + 0.5
             z = non_zeros[2][idx]/100.0 - 0.5
-            dx = self.voxel_flow[frame_idx, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx], 1]
-            dy = -1 * self.voxel_flow[frame_idx, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx], 2]
-            dz = self.voxel_flow[frame_idx, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx], 3]
+            dx = self.voxel_flow[frame_idx, 1, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx]]
+            dy = -1 * self.voxel_flow[frame_idx, 2, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx]]
+            dz = self.voxel_flow[frame_idx, 3, non_zeros[0][idx], non_zeros[1][idx], non_zeros[2][idx]]
             op_flow[idx] = np.array([x,y,z,dx,dy,dz])
 
         # Remove vectors with norm = 0

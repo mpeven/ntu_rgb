@@ -2,6 +2,7 @@
 .DS_Store
 
 # Config files
+.remote-sync.json
 sftp-config.json
 
 # Cached files

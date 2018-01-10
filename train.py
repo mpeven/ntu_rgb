@@ -114,14 +114,13 @@ def get_input_features(vox_flow):
     for feature_idx in range(K):
         start = int(skip_amount * feature_idx)
         end = int(start + T)
-        feature = np.vstack(vox_flow[start:end,1:,:,:,:]) # Stack frames
+        feature = np.vstack(vox_flow[start:end,:,:,:,:]) # Stack frames
         features.append(feature)
 
     # Combine all chunks into one tensor
     stacked_feature = np.stack(features)
 
     return torch.from_numpy(stacked_feature)
-
 
 
 
@@ -133,14 +132,45 @@ def train_batch_generator():
 
     # Get training split
     train_vid_ids = [x for x in range(10000)]# TODO: figure out train split
-    np.random.shuffle(train_vid_ids)
+    # np.random.shuffle(train_vid_ids)
 
     for vid_id in train_vid_ids:
-        vox_flow = dataset.get_voxel_flow(vid_id)
+
+        start1 = dt.datetime.now()
+        # vox_flow = dataset.get_voxel_flow(vid_id)
+        # continue
+        a = np.load("cache/voxel_flow_81/{:05}.npy".format(vid_id))
+        an = np.load("cache/voxel_flow_81/{:05}.nonzeros.npy".format(vid_id))
+        ash = np.load("cache/voxel_flow_81/{:05}.shape.npy".format(vid_id))
+        vox_flow = np.zeros(ash)
+        vox_flow[tuple(an)] = a
+
+        start2 = dt.datetime.now()
         x = get_input_features(vox_flow)
+
+        start3 = dt.datetime.now()
         x = x.unsqueeze(0) # Add a fake batch dimension
+        x = x.type(torch.FloatTensor)
+
+        # indices = torch.nonzero(x).t()
+        # values = x[indices[0], indices[1], indices[2], indices[3], indices[4], indices[5]] # modify this based on dimensionality
+        # x_sparse = torch.sparse.FloatTensor(indices, values, x.size())
+        # torch.sparse.save(x_sparse, "{:05}.sparsetensor".format(vid_id))
+
+        # x = x.type(torch.HalfTensor)
+        # torch.save(x, "{:05}.halftensor".format(vid_id))
+        # x = torch.load("{:05}.tensor".format(vid_id))
+
         y = torch.from_numpy(np.array([vid_id % NUM_CLASSES])) #dataset.get_action(vid_id) ## TODO: implement this function
-        yield x.type(torch.FloatTensor), y
+
+        print("1 - {}".format(start2 - start1))
+        print("2 - {}".format(start3 - start2))
+        print("3 - {}".format(dt.datetime.now() - start3))
+        print("Total - {}".format(dt.datetime.now() - start1))
+
+
+
+        yield x, y
 
 
 
@@ -150,28 +180,40 @@ def main():
     loss_func = nn.CrossEntropyLoss()
     optimizer = optim.SGD(net.parameters(), lr=0.005, momentum=0.9)
 
-    running_loss = 0.0
-    print_every = 100
+    all_losses = []
+    print_every = 10
     for epoch in range(EPOCHS):
+        train_batch_gen = train_batch_generator()
         start = dt.datetime.now()
-        for i, (inputs, labels) in enumerate(train_batch_generator()):
+        for i in range(10000):#, (inputs, labels) in enumerate():
             # Get data
+            starta = dt.datetime.now()
+            inputs, labels = next(train_batch_gen)
+
+            # Send to gpu
+            startb = dt.datetime.now()
             inputs = Variable(inputs.cuda())
             labels = Variable(labels.cuda())
 
             # Forward + backward pass
+            startc = dt.datetime.now()
             optimizer.zero_grad()
             output = net(inputs)
             loss = loss_func(output, labels)
             loss.backward()
             optimizer.step()
 
+            # print("get data  - {}".format(startb - starta))
+            # print("to gpu    - {}".format(startc - startb))
+            # print("f+b       - {}".format(dt.datetime.now() - startc))
+            # print("Iter {:04} - {}".format(i, dt.datetime.now() - starta))
+            # print("Total     - {}".format(dt.datetime.now() - start))
+
             # Print stats
-            running_loss += loss.data[0]
             if (i+1) % print_every == 0:
+                all_losses.append(loss.data[0])
                 print('[Epoch {:02d}, Batch {:05d}] loss: {:.5f}, sec/iter: {}'.format(
-                    epoch + 1, i + 1, running_loss / print_every, (dt.datetime.now() - start)/(i+1)))
-                running_loss = 0.0
+                    epoch + 1, i + 1, np.mean(all_losses), (dt.datetime.now() - start)/(i+1)))
 
         # Testing
         correct = 0

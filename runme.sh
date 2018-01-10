@@ -6,16 +6,11 @@
 #SBATCH --partition=shared
 #SBATCH --mail-user=mpeven@jhu.edu
 #SBATCH --mem=20G
-#SBATCH --array=1,3,5
+#SBATCH --array=2,4,6
 ####SBATCH --array=100-56900:100%50
 
-# Load all Modules
-module load anaconda-python/3.6
-module load opencv/gcc/3.1.0
-module
-
-# Install pip requirements
-pip install --user -r requirements.txt
+# Load virtual environment
+source activate activity_recognition
 
 # Run the code
 # Change 2 to 100
