@@ -776,7 +776,8 @@ def create_all_voxel_flows():
 
 def create_all_3D_op_flows():
     dataset = NTU()
-    for vid in range(int(sys.argv[1]) - int(sys.argv[2]), min(int(sys.argv[1]), dataset.num_vids)):
+    step = int(sys.argv[2])
+    for vid in range((int(sys.argv[1])-1)*step, min(int(sys.argv[1])*step, dataset.num_vids)):
         start = dt.datetime.now()
         dataset.get_3D_optical_flow(vid, cache=True)
         print("Total time: {}".format(dt.datetime.now() - start))
