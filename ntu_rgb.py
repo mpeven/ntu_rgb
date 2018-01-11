@@ -516,7 +516,7 @@ class NTU:
 
             # Get the displacement vector between p(t) and p(t+1)
             disp_vecs = rgb_xyz[frame+1, p1[0], p1[1]] - p0
-            disp_vecs[np.sum(dudv, axis=1) < 0.5] = np.array([0,0,0])
+            disp_vecs[np.sum(dudv*dudv, axis=1) < 0.5] = np.array([0,0,0])
 
             # Combine start (x,y,z) and displacement (dx,dy,dz) into ndarray
             start_disp = np.hstack([p0, disp_vecs])
