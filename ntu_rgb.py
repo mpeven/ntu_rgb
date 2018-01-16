@@ -110,8 +110,12 @@ class NTU:
         self.depth_img_dirs        = self.get_files(depth_dir)
         self.masked_depth_img_dirs = self.get_files(masked_depth_dir)
         self.skeleton_files        = self.get_files(skeleton_dir)
+
         # Check if metadata saved to disk
         self.metadata              = self.check_metadata()
+
+        # Set train test splits
+        self.set_splits()
 
 
 
@@ -185,6 +189,45 @@ class NTU:
             return self.load_metadata()
         else:
             exit()
+
+
+
+
+    def set_splits(self):
+        '''
+        Sets the train/test splits
+
+        Cross-Subject Evaluation:
+            Train ids = 1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27,
+                        28, 31, 34, 35, 38
+
+        Cross-View Evaluation:
+            Train camera views: 1, 2
+        '''
+        # Save the dataset as a dataframe
+        dataset = pd.DataFrame(self.metadata)
+
+        # Get the train split ids
+        train_ids_subject = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25,
+            27, 28, 31, 34, 35, 38]
+        train_ids_camera  = [1, 2]
+
+        # Set the train splits
+        self.train_split_subject = list(
+            dataset[dataset.performer.isin(train_ids_subject)]['video_index']
+        )
+        self.train_split_camera  = list(
+            dataset[dataset.performer.isin(train_ids_camera)]['video_index']
+        )
+
+        # Set the test splits
+        self.test_split_subject = list(
+            dataset[~dataset.performer.isin(train_ids_subject)]['video_index']
+        )
+        self.test_split_camera  = list(
+            dataset[~dataset.performer.isin(train_ids_camera)]['video_index']
+        )
+
 
 
 
@@ -485,7 +528,7 @@ class NTU:
         # Check cache for optical flow
         if self.check_cache('optical_flow_3D', vid_id, existence=True,#):
                             cached_files_dir=op_flow_3D_cache): # If marcc dump on hdd
-            print("Found 3D optical flow {:05} in cache".format(vid_id))
+            # print("Found 3D optical flow {:05} in cache".format(vid_id))
             return self.check_cache('optical_flow_3D', vid_id, existence=False,#)
                                 cached_files_dir=op_flow_3D_cache) # If marcc dump on hdd
 
