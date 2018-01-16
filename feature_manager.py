@@ -13,6 +13,7 @@ between each frame in the subsection
 import sys, os
 import numpy as np
 from ntu_rgb import NTU
+from tqdm import tqdm
 
 
 
@@ -54,7 +55,7 @@ class FeatureManager:
         """
 
         # Get the voxel flow from the ntu_rgb wrapper
-        vox_flow = dataset.get_voxel_flow(vid_id)
+        vox_flow = self.dataset.get_voxel_flow(vid_id)
 
         # Split up video into K equal parts of size T
         frames = vox_flow.shape[0]
@@ -68,6 +69,8 @@ class FeatureManager:
 
         # Combine all chunks into one tensor
         stacked_feature = np.stack(features)
+
+        return stacked_feature
 
 
 
@@ -85,9 +88,9 @@ class FeatureManager:
         nonzeros = np.array(np.nonzero(feature))
 
         # Save the non-zero locations, values, and shape of original feature
-        np.save("{}{:05}.npy".format(CACHE_DIR, vid_id), feature[tuple(nonzeros)])
-        np.save("{}{:05}.nonzeros.npy".format(CACHE_DIR, vid_id), nonzeros)
-        np.save("{}{:05}.shape.npy".format(CACHE_DIR, vid_id), feature.shape)
+        np.save("{}/{:05}.npy".format(CACHE_DIR, vid_id), feature[tuple(nonzeros)])
+        np.save("{}/{:05}.nonzeros.npy".format(CACHE_DIR, vid_id), nonzeros)
+        np.save("{}/{:05}.shape.npy".format(CACHE_DIR, vid_id), feature.shape)
 
 
 
@@ -98,9 +101,9 @@ class FeatureManager:
         """
 
         # Load the data
-        feat_values = np.load("{}{:05}.npy".format(CACHE_DIR, vid_id))
-        feat_nonzero = np.load("{}{:05}.nonzeros.npy".format(CACHE_DIR, vid_id))
-        feat_shape = np.load("{}{:05}.shape.npy".format(CACHE_DIR, vid_id))
+        feat_values  = np.load("{}/{:05}.npy".format(CACHE_DIR, vid_id))
+        feat_nonzero = np.load("{}/{:05}.nonzeros.npy".format(CACHE_DIR, vid_id))
+        feat_shape   = np.load("{}/{:05}.shape.npy".format(CACHE_DIR, vid_id))
 
         # Rebuild the feature from the saved data
         feature = np.zeros(feat_shape)
@@ -116,7 +119,7 @@ def main():
     Cache all features
     """
     fm = FeatureManager()
-    for x in range(10000):
+    for x in tqdm(range(fm.dataset.num_vids), "Creating features"):
         fm.save_feature(x)
 
 

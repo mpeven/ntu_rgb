@@ -1,7 +1,9 @@
 import numpy as np
 from ntu_rgb import NTU
+from feature_manager import FeatureManager
 import datetime as dt
 import line_profiler
+from tqdm import tqdm
 
 import torch
 from torch.autograd import Variable
@@ -25,12 +27,15 @@ C = 3  # Number of channels
 ####################
 
 
-########
-# TODO
-# Decrease voxel size until batch size can be > 1
-# Make sure smaller voxel size still looks good
-# Create validation set
-# Train and test on everything
+####################
+# Dataset
+
+dataset = NTU()
+features = FeatureManager()
+
+#
+####################
+
 
 class Net(nn.Module):
     """
@@ -89,86 +94,25 @@ class Net(nn.Module):
 
 
 
-def get_input_features(vox_flow):
-    """
-    Create the input features for a single video
-
-    Parameters
-    ----------
-    vox_flow : ndarray
-        The voxel flow for a video, an ndarray with shape [frames,100,100,100,4]
-
-    Returns
-    -------
-    torch Variable
-        The list of features, each one an ndarray with shape [K*T*C,100,100,100].
-        K = number of features in each video
-        T = number of frames in each feature
-        C = number of channels (dx, dy, dz)
-    """
-
-    # Split up video into K equal parts of size T
-    frames = vox_flow.shape[0]
-    skip_amount = (frames - T) / (K - 1)
-    features = []
-    for feature_idx in range(K):
-        start = int(skip_amount * feature_idx)
-        end = int(start + T)
-        feature = np.vstack(vox_flow[start:end,:,:,:,:]) # Stack frames
-        features.append(feature)
-
-    # Combine all chunks into one tensor
-    stacked_feature = np.stack(features)
-
-    return torch.from_numpy(stacked_feature)
-
-
-
-def train_batch_generator():
+def train_batch_generator(test=False):
     """
     Dataset can't fit in memory - generator needed
     """
-    dataset = NTU()
 
-    # Get training split
-    train_vid_ids = [x for x in range(10000)]# TODO: figure out train split
-    # np.random.shuffle(train_vid_ids)
+    # Get training or test split and shuffle
+    if test == False:
+        train_vid_ids = dataset.train_split_subject
+    else:
+        train_vid_ids = dataset.test_split_subject
+    np.random.shuffle(train_vid_ids)
 
+    # Yield the features and label
     for vid_id in train_vid_ids:
-
-        start1 = dt.datetime.now()
-        # vox_flow = dataset.get_voxel_flow(vid_id)
-        # continue
-        a = np.load("cache/voxel_flow_81/{:05}.npy".format(vid_id))
-        an = np.load("cache/voxel_flow_81/{:05}.nonzeros.npy".format(vid_id))
-        ash = np.load("cache/voxel_flow_81/{:05}.shape.npy".format(vid_id))
-        vox_flow = np.zeros(ash)
-        vox_flow[tuple(an)] = a
-
-        start2 = dt.datetime.now()
-        x = get_input_features(vox_flow)
-
-        start3 = dt.datetime.now()
-        x = x.unsqueeze(0) # Add a fake batch dimension
+        x = torch.from_numpy(features.load_feature(vid_id))
         x = x.type(torch.FloatTensor)
-
-        # indices = torch.nonzero(x).t()
-        # values = x[indices[0], indices[1], indices[2], indices[3], indices[4], indices[5]] # modify this based on dimensionality
-        # x_sparse = torch.sparse.FloatTensor(indices, values, x.size())
-        # torch.sparse.save(x_sparse, "{:05}.sparsetensor".format(vid_id))
-
-        # x = x.type(torch.HalfTensor)
-        # torch.save(x, "{:05}.halftensor".format(vid_id))
-        # x = torch.load("{:05}.tensor".format(vid_id))
+        x = x.unsqueeze(0) # Add a fake batch dimension
 
         y = torch.from_numpy(np.array([vid_id % NUM_CLASSES])) #dataset.get_action(vid_id) ## TODO: implement this function
-
-        print("1 - {}".format(start2 - start1))
-        print("2 - {}".format(start3 - start2))
-        print("3 - {}".format(dt.datetime.now() - start3))
-        print("Total - {}".format(dt.datetime.now() - start1))
-
-
 
         yield x, y
 
@@ -181,54 +125,46 @@ def main():
     optimizer = optim.SGD(net.parameters(), lr=0.005, momentum=0.9)
 
     all_losses = []
-    print_every = 10
+    print_every = 100
     for epoch in range(EPOCHS):
-        train_batch_gen = train_batch_generator()
         start = dt.datetime.now()
-        for i in range(10000):#, (inputs, labels) in enumerate():
-            # Get data
-            starta = dt.datetime.now()
-            inputs, labels = next(train_batch_gen)
-
+        stat_dict = {"Epoch": epoch, "Loss": "0"}
+        iterator = tqdm(
+            iterable = enumerate(train_batch_generator()),
+            total    = len(dataset.train_split_subject),
+            postfix  = stat_dict
+        )
+        for i, (inputs, labels) in iterator:
             # Send to gpu
-            startb = dt.datetime.now()
             inputs = Variable(inputs.cuda())
             labels = Variable(labels.cuda())
 
             # Forward + backward pass
-            startc = dt.datetime.now()
             optimizer.zero_grad()
             output = net(inputs)
             loss = loss_func(output, labels)
             loss.backward()
             optimizer.step()
 
-            # print("get data  - {}".format(startb - starta))
-            # print("to gpu    - {}".format(startc - startb))
-            # print("f+b       - {}".format(dt.datetime.now() - startc))
-            # print("Iter {:04} - {}".format(i, dt.datetime.now() - starta))
-            # print("Total     - {}".format(dt.datetime.now() - start))
-
             # Print stats
-            if (i+1) % print_every == 0:
+            if i % print_every == 0:
                 all_losses.append(loss.data[0])
-                print('[Epoch {:02d}, Batch {:05d}] loss: {:.5f}, sec/iter: {}'.format(
-                    epoch + 1, i + 1, np.mean(all_losses), (dt.datetime.now() - start)/(i+1)))
+                stat_dict['Loss'] = "{:.5f}".format(np.mean(all_losses))
+                iterator.set_postfix(stat_dict)
 
         # Testing
         correct = 0
         total = 0
-        for i, (inputs, labels) in enumerate(train_batch_generator()):
+        for i, (inputs, labels) in enumerate(train_batch_generator(test=True)):
             inputs = Variable(inputs.cuda())
             outputs = net(inputs)
             _, predicted = torch.max(outputs.data, 1)
             total += labels.size(0)
             correct += (predicted.type(torch.LongTensor) == labels.type(torch.LongTensor)).sum()
             del inputs, outputs
-            if i == 100:
-                break
         print('Accuracy: {:.2f}%'.format(100 * correct / total))
 
+        np.save(all_losses, 'loss_progression_{}'.format(epoch))
         torch.save(net.state_dict(), 'torch_model_{}'.format(epoch))
 
 
