@@ -47,11 +47,19 @@ ir_vid_dir       = '/hdd/Datasets/NTU/nturgb+d_ir'
 depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
 masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
 skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
+# marcc
+rgb_vid_dir      = '/home-3/mpeven1@jhu.edu/data/nturgb+d_rgb'
+ir_vid_dir       = '/home-3/mpeven1@jhu.edu/data/nturgb+d_ir'
+depth_dir        = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth'
+masked_depth_dir = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth_masked'
+skeleton_dir     = '/home-3/mpeven1@jhu.edu/data/nturgb+d_skeletons'
 
 # Cache path
 dir_path         = os.path.dirname(os.path.realpath(__file__))
 cache_dir        = os.path.join(dir_path, 'cache')
-op_flow_3D_cache = "/hdd/Datasets/NTU/nturgb+d_optical_flow_3D"
+cache_dir        = os.path.join('/home-3/mpeven1@jhu.edu/work/dev_mp', 'nturgb_cache') # marcc
+# op_flow_3D_cache = "/hdd/Datasets/NTU/nturgb+d_optical_flow_3D"
+op_flow_3D_cache = "/Users/mpeven/Documents/PhD/Activity_Recognition/cache/optical_flow_3D"
 
 
 
@@ -63,7 +71,8 @@ compiled_regex = re.compile('.*S(\d{3})C(\d{3})P(\d{3})R(\d{3})A(\d{3}).*')
 
 ##################################################
 # Subject ids used in original paper for training
-train_IDs = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31, 34, 35, 38]
+TRAIN_IDS = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31, 34, 35, 38]
+TRAIN_VALID_IDS = ([1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31], [34, 35, 38])
 
 
 
@@ -116,6 +125,9 @@ class NTU:
 
         # Set train test splits
         self.set_splits()
+
+        # Video labels
+        self.id_to_action = list(pd.DataFrame(self.metadata)['action'] - 1)
 
 
 
@@ -208,25 +220,25 @@ class NTU:
         dataset = pd.DataFrame(self.metadata)
 
         # Get the train split ids
-        train_ids_subject = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25,
-            27, 28, 31, 34, 35, 38]
         train_ids_camera  = [1, 2]
 
         # Set the train splits
         self.train_split_subject = list(
-            dataset[dataset.performer.isin(train_ids_subject)]['video_index']
-        )
+            dataset[dataset.performer.isin(TRAIN_IDS)]['video_index'])
         self.train_split_camera  = list(
-            dataset[dataset.performer.isin(train_ids_camera)]['video_index']
-        )
+            dataset[dataset.performer.isin(train_ids_camera)]['camera'])
+
+        # Set the validation/train splits
+        self.train_split_subject_with_validation = list(
+            dataset[dataset.performer.isin(TRAIN_VALID_IDS[0])]['video_index'])
+        self.validation_split_subject = list(
+            dataset[dataset.performer.isin(TRAIN_VALID_IDS[1])]['video_index'])
 
         # Set the test splits
         self.test_split_subject = list(
-            dataset[~dataset.performer.isin(train_ids_subject)]['video_index']
-        )
+            dataset[~dataset.performer.isin(TRAIN_IDS)]['video_index'])
         self.test_split_camera  = list(
-            dataset[~dataset.performer.isin(train_ids_camera)]['video_index']
-        )
+            dataset[~dataset.performer.isin(train_ids_camera)]['camera'])
 
 
 
@@ -483,12 +495,10 @@ class NTU:
         # RGB-camera coordinates --> RGB pixel coordinates
         x_rgb = (xyz_rgb[:,:,:,0] * rgb_mat[0,0] / xyz_rgb[:,:,:,2]) + rgb_mat[0,2]
         y_rgb = (xyz_rgb[:,:,:,1] * rgb_mat[1,1] / xyz_rgb[:,:,:,2]) + rgb_mat[1,2]
-        x_rgb[x_rgb >= W_rgb] = 0
-        y_rgb[y_rgb >= H_rgb] = 0
 
-        # Convert index arrays to integer
-        x_rgb = x_rgb.astype(int)
-        y_rgb = y_rgb.astype(int)
+        # Convert index arrays to integer and clip to rgb dimensions
+        x_rgb = np.clip(x_rgb, 0, W_rgb-1).astype(int)
+        y_rgb = np.clip(y_rgb, 0, H_rgb-1).astype(int)
 
         # Build rgb 3D coordinate tensor
         rgb_xyz = np.zeros([frames, H_rgb, W_rgb, 3]).astype(np.float32)
@@ -608,7 +618,7 @@ class NTU:
             filled, 1-3: dx, dy, dz components of average optical flow at that
             voxel
         '''
-        VOXEL_SIZE = 81
+        VOXEL_SIZE = 100
 
         # Check cache for voxel flow
         if self.check_cache('voxel_flow_{}'.format(VOXEL_SIZE), vid_id, existence=True):
@@ -650,6 +660,31 @@ class NTU:
             self.cache(voxel_flow_tensor, 'voxel_flow_{}'.format(VOXEL_SIZE), vid_id, compress=True)
 
         return voxel_flow_tensor
+
+
+
+
+
+    def rotate_voxel_flow(self, voxel_flow_tensor):
+        '''
+        Rotate the voxel flow tensor by a given amount
+
+        Parameters
+        ----------
+        vid_id : int
+            The video to get the rotated voxel flow for. {1-56879}
+
+        Returns
+        -------
+        voxel_flow_tensor : ndarray
+            The rotated voxel flow, shape [frames,  4,  X,  X,  X]
+            X = the size of the voxel grid
+        '''
+        # return scipy.ndimage.interpolation.rotate(voxel_flow_tensor, 20,
+        pass
+
+
+
 
 
 
@@ -758,6 +793,55 @@ class NTU:
         points3d /= max_vec_len
 
         return points3d
+
+
+
+
+
+    def get_rgb_mask(self, vid_id):
+        '''
+        Get a bounding box around where the action should be in the rgb image
+
+        Parameters
+        ----------
+        vid_id : int
+            The video id
+
+        Returns
+        -------
+        bbox : ndarray
+            The bounding box, [y min, x min, y max, x max] (min being top left)
+        '''
+        # Get bounding box for depth image
+        depth_paths = self.get_files(self.masked_depth_img_dirs[vid_id])
+        depth_im    = cv2.imread(depth_paths[0], -1)
+        depth_nz    = np.nonzero(depth_im)
+        depth_bbox  = np.concatenate([np.min(depth_nz, 1), np.max(depth_nz, 1)])
+
+        # Get depth pixel to rgb pixel map
+        depth_im = depth_im.astype(np.float32)/1000.0
+        depth_im[depth_im == 0] = -1000
+        Y, X = np.mgrid[0:424, 0:512]
+        x_3D = (X - cx_d) * depth_im / fx_d
+        y_3D = (Y - cy_d) * depth_im / fy_d
+        m = next((meta for meta in self.metadata if meta['video_index'] == vid_id), None)
+        xyz_d = np.stack([x_3D, y_3D, depth_im], axis=2)
+        xyz_rgb = m['T']*m['scale'] + m['R'] @ xyz_d[:,:,:,np.newaxis]
+        xyz_rgb = xyz_rgb.squeeze(axis=3)
+        x_rgb = (xyz_rgb[:,:,0] * rgb_mat[0,0] / xyz_rgb[:,:,2]) + rgb_mat[0,2]
+        y_rgb = (xyz_rgb[:,:,1] * rgb_mat[1,1] / xyz_rgb[:,:,2]) + rgb_mat[1,2]
+        x_rgb = np.clip(x_rgb, 0, 1919).astype(int)
+        y_rgb = np.clip(y_rgb, 0, 1079).astype(int)
+        d_2_rgb = np.stack([y_rgb, x_rgb], axis=2)
+
+        # Get bounding box in rgb
+        rgb_mins = d_2_rgb[depth_bbox[0], depth_bbox[1]]
+        rgb_maxs = d_2_rgb[depth_bbox[2], depth_bbox[3]]
+        rgb_bbox = np.concatenate([rgb_mins, rgb_maxs])
+
+        return rgb_bbox
+
+
 
 
 

@@ -32,6 +32,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset
 from torch.utils.data.sampler import SubsetRandomSampler
+import torchvision.models as models
+import torchvision.transforms as transforms
 
 
 
@@ -60,52 +62,31 @@ features = FeatureManager()
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        # C - num channels (3 - dx,dy,dz)
-        # T - num frames per feature (10)
-        self.convlayer1 = nn.Sequential(
-            nn.Conv3d(C * T, 96, kernel_size=3, padding=1),
-            nn.BatchNorm3d(96),
+        full_model = models.resnet152(pretrained=True)
+        modules = list(full_model.children())[:-1]
+        self.base_model = nn.Sequential(*modules)
+        self.timelayer1 = nn.Sequential(
+            nn.Conv1d(2048, 512, kernel_size=3, padding=0),
+            nn.BatchNorm3d(512),
             nn.ReLU(),
-            nn.MaxPool3d(3))
-        self.convlayer2 = nn.Sequential(
-            nn.Conv3d(96, 256, kernel_size=3, padding=1),
+        )
+        self.timelayer2 = nn.Sequential(
+            nn.Conv1d(512, 256, kernel_size=3, padding=0),
             nn.BatchNorm3d(256),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
-            nn.MaxPool3d(3))
-        self.convlayer3 = nn.Sequential(
-            nn.Conv3d(256, 512, kernel_size=3, padding=1),
-            nn.BatchNorm3d(512),
-            nn.ReLU(),
-            # nn.Dropout3d(.2),
-            nn.MaxPool3d(3))
-        self.convlayer4 = nn.Sequential(
-            nn.Conv3d(512, 512, kernel_size=2, padding=1),
-            nn.BatchNorm3d(512),
-            nn.ReLU(),
-            # nn.Dropout3d(.2),
-            nn.MaxPool3d(3))
-        self.timelayer1 = nn.Sequential(
-            nn.Conv1d(512, 512, kernel_size=3, padding=0),
-            nn.BatchNorm3d(512),
-            nn.ReLU(),
-            # nn.Dropout3d(.2),
-            )
-        self.preds = nn.Linear(512, NUM_CLASSES)
+        )
+        self.preds = nn.Linear(256, NUM_CLASSES)
 
     def forward(self, X):
-        all_x = []
-        # K - num features per video (5)
-        for k in range(K):
-            x = self.convlayer1(X[:,k])
-            x = self.convlayer2(x)
-            x = self.convlayer3(x)
-            x = self.convlayer4(x)
-            x = x.view(-1, int(np.prod(x.size()[1:]))) # Flatten
-            all_x.append(x)
-        x = torch.stack(all_x, 2)
+        resnet_out = []
+        for im in range(K):
+            res_out = self.base_model(X[:,im])
+            resnet_out.append(res_out)
+        x = torch.stack(resnet_out, 1)
+        x = x.view(-1, K, int(np.prod(x.size()[2:]))) # Flatten
+        x = x.permute([0,2,1])
         x = self.timelayer1(x)
-        x = self.timelayer1(x)
+        x = self.timelayer2(x)
         x = x.view(-1, int(np.prod(x.size()[1:]))) # Flatten
         return self.preds(x)
 
@@ -127,16 +108,25 @@ class NTURGBDataset(Dataset):
             self.vid_ids = dataset.train_split_subject
         else:
             self.vid_ids = dataset.train_split_subject_with_validation
+        self.transform = transforms.Compose([
+            transforms.ToPILImage(),
+            transforms.Resize((224,224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
 
     def __len__(self):
         return len(self.vid_ids)
 
     def __getitem__(self, idx):
         vid_id = self.vid_ids[idx]
-        x = torch.from_numpy(features.load_feature(vid_id))
-        x = x.type(torch.FloatTensor)
+        images = np.load('/hdd/Datasets/NTU/nturgb+d_images/{:05}.npy'.format(vid_id))
+        images_resized = []
+        for x in images:
+            images_resized.append(self.transform(x))
+        x = torch.stack(images_resized).type(torch.FloatTensor)
         y = dataset.id_to_action[vid_id]
-        return {"Features": x, "Label": y}
+        return x, y
 
 
 
@@ -152,11 +142,11 @@ def get_train_valid_loader(batch_size):
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
                     batch_size=batch_size, shuffle=True,
-                    num_workers=4, pin_memory=True)
+                    num_workers=8, pin_memory=True)
 
     valid_loader = torch.utils.data.DataLoader(valid_dataset,
                     batch_size=batch_size, shuffle=True,
-                    num_workers=4, pin_memory=True)
+                    num_workers=8, pin_memory=True)
 
     return (train_loader, valid_loader)
 
@@ -182,12 +172,12 @@ def test(batch_size):
     stat_dict = {"Accuracy": "0"}
     iterator = tqdm(test_loader, postfix=stat_dict)
     for i, test_data in enumerate(iterator):
-        inputs = Variable(test_data['Features'].cuda(async=True))
-        labels = Variable(test_data['Label'].cuda(async=True))
+        inputs = Variable(test_data[0].cuda(async=True))
+        labels = Variable(test_data[1].cuda(async=True))
         outputs = net(inputs)
         _, predicted = torch.max(outputs.data, 1)
         total += labels.size(0)
-        correct += (predicted.type(torch.LongTensor) == test_data['Label'].type(torch.LongTensor)).sum()
+        correct += (predicted.type(torch.LongTensor) == test_data[1].type(torch.LongTensor)).sum()
         stat_dict['Accuracy'] = "{:.4f}".format(100 * correct / total)
         iterator.set_postfix(stat_dict)
         del inputs, outputs
@@ -220,8 +210,8 @@ def train(num_epochs, batch_size):
         iterator = tqdm(train_loader, postfix=stat_dict)
         for i, train_data in enumerate(iterator):
             # Send to gpu
-            inputs = Variable(train_data['Features'].cuda(async=True))
-            labels = Variable(train_data['Label'].cuda(async=True))
+            inputs = Variable(train_data[0].cuda(async=True))
+            labels = Variable(train_data[1].cuda(async=True))
 
             # Forward + backward pass
             optimizer.zero_grad()
@@ -233,8 +223,8 @@ def train(num_epochs, batch_size):
             # Update loss and accuracy
             if i%10 == 0:
                 _, predicted = torch.max(outputs.data, 1)
-                total += train_data['Label'].size(0)
-                correct += (predicted.type(torch.LongTensor) == train_data['Label'].type(torch.LongTensor)).sum()
+                total += train_data[1].size(0)
+                correct += (predicted.type(torch.LongTensor) == train_data[1].type(torch.LongTensor)).sum()
                 all_losses.append(loss.data[0])
                 stat_dict['Loss'] = "{:.5f}".format(np.mean(all_losses))
                 stat_dict['Acc'] = "{:.4f}".format(100 * correct / total)
@@ -248,11 +238,11 @@ def train(num_epochs, batch_size):
         stat_dict = {"Epoch": epoch, "Accuracy": "0"}
         iterator = tqdm(valid_loader, postfix=stat_dict)
         for i, valid_data in enumerate(iterator):
-            inputs = Variable(valid_data['Features'].cuda(async=True))
+            inputs = Variable(valid_data[0].cuda(async=True))
             outputs = net(inputs)
             _, predicted = torch.max(outputs.data, 1)
-            total += valid_data['Label'].size(0)
-            correct += (predicted.type(torch.LongTensor) == valid_data['Label'].type(torch.LongTensor)).sum()
+            total += valid_data[1].size(0)
+            correct += (predicted.type(torch.LongTensor) == valid_data[1].type(torch.LongTensor)).sum()
             stat_dict['Accuracy'] = "{:.4f}".format(100 * correct / total)
             iterator.set_postfix(stat_dict)
             del outputs
