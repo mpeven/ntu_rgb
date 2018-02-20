@@ -48,16 +48,16 @@ depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
 masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
 skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
 # marcc
-rgb_vid_dir      = '/home-3/mpeven1@jhu.edu/data/nturgb+d_rgb'
-ir_vid_dir       = '/home-3/mpeven1@jhu.edu/data/nturgb+d_ir'
-depth_dir        = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth'
-masked_depth_dir = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth_masked'
-skeleton_dir     = '/home-3/mpeven1@jhu.edu/data/nturgb+d_skeletons'
+# rgb_vid_dir      = '/home-3/mpeven1@jhu.edu/data/nturgb+d_rgb'
+# ir_vid_dir       = '/home-3/mpeven1@jhu.edu/data/nturgb+d_ir'
+# depth_dir        = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth'
+# masked_depth_dir = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth_masked'
+# skeleton_dir     = '/home-3/mpeven1@jhu.edu/data/nturgb+d_skeletons'
 
 # Cache path
 dir_path         = os.path.dirname(os.path.realpath(__file__))
 cache_dir        = os.path.join(dir_path, 'cache')
-cache_dir        = os.path.join('/home-3/mpeven1@jhu.edu/work/dev_mp', 'nturgb_cache') # marcc
+# cache_dir        = os.path.join('/home-3/mpeven1@jhu.edu/work/dev_mp', 'nturgb_cache') # marcc
 # op_flow_3D_cache = "/hdd/Datasets/NTU/nturgb+d_optical_flow_3D"
 op_flow_3D_cache = "/Users/mpeven/Documents/PhD/Activity_Recognition/cache/optical_flow_3D"
 
@@ -72,7 +72,7 @@ compiled_regex = re.compile('.*S(\d{3})C(\d{3})P(\d{3})R(\d{3})A(\d{3}).*')
 ##################################################
 # Subject ids used in original paper for training
 TRAIN_IDS = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31, 34, 35, 38]
-TRAIN_VALID_IDS = ([1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31], [34, 35, 38])
+TRAIN_VALID_IDS = ([1, 2, 5, 8, 9, 13, 14, 15, 16, 18, 19, 25, 27, 28, 31, 34, 38], [4, 17, 25, 35])
 
 
 
