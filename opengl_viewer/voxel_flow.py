@@ -81,34 +81,41 @@ class Voxel_Flow_3D:
         num_arrows = op_flow.shape[0]
 
         # Get rotation angles
-        xy_length = np.linalg.norm(op_flow[:, 3:5], axis=1)
-        mask = (xy_length == 0)
-        z_angles = np.zeros([num_arrows])
-        z_angles[mask] = np.radians(90)
-        z_angles[~mask] = -np.arccos(op_flow[~mask, 4] / xy_length[~mask])
-        x_angles = np.arccos(np.linalg.norm(op_flow[:, 3:5], axis=1) / xyz_length)
-        z_angles[op_flow[:,3] < 0] *= -1
-        x_angles[op_flow[:,5] < 0] *= -1
+        # xy_length = np.linalg.norm(op_flow[:, 3:5], axis=1)
+        # mask = (xy_length == 0)
+        # z_angles = np.zeros([num_arrows])
+        # z_angles[mask] = np.radians(90)
+        # z_angles[~mask] = -np.arccos(op_flow[~mask, 4] / xy_length[~mask])
+        # x_angles = np.arccos(np.linalg.norm(op_flow[:, 3:5], axis=1) / xyz_length)
+        # z_angles[op_flow[:,3] < 0] *= -1
+        # x_angles[op_flow[:,5] < 0] *= -1
 
         # Get starting vertices
         vertices = np.tile(arrow_verts.copy(), (num_arrows, 1))
 
         # Add vector length to arrow tip
-        vertices[8::9,1] += xyz_length*1.5
+        # vertices[8::9,1] += xyz_length*1.5
 
         # Rotate all points in direction of 3D vector
-        x_angles = np.repeat(x_angles,9)
-        z_angles = np.repeat(z_angles,9)
-        cos_x = np.cos(x_angles)
-        sin_x = np.sin(x_angles)
-        cos_z = np.cos(z_angles)
-        sin_z = np.cos(z_angles)
-        y1 = vertices[:, 1]*cos_x - vertices[:, 2]*sin_x
-        z1 = vertices[:, 1]*sin_x + vertices[:, 2]*cos_x
-        x2 = vertices[:, 0]*cos_z - y1*sin_z
-        y2 = vertices[:, 0]*sin_z + y1*cos_z
-        x3 = x2 + np.repeat(op_flow[:,0], 9)
-        y3 = y2 + np.repeat(op_flow[:,1], 9)
-        z3 = z1 + np.repeat(op_flow[:,2], 9)
-        vertices = np.stack([x3,y3,z3]).T.flatten()
+        # x_angles = np.repeat(x_angles,9)
+        # z_angles = np.repeat(z_angles,9)
+        # cos_x = np.cos(x_angles)
+        # sin_x = np.sin(x_angles)
+        # cos_z = np.cos(z_angles)
+        # sin_z = np.cos(z_angles)
+        # y1 = vertices[:, 1]*cos_x - vertices[:, 2]*sin_x
+        # z1 = vertices[:, 1]*sin_x + vertices[:, 2]*cos_x
+        # x2 = vertices[:, 0]*cos_z - y1*sin_z
+        # y2 = vertices[:, 0]*sin_z + y1*cos_z
+        # x3 = x2 + np.repeat(op_flow[:,0], 9)
+        # y3 = y2 + np.repeat(op_flow[:,1], 9)
+        # z3 = z1 + np.repeat(op_flow[:,2], 9)
+        # vertices = np.stack([x3,y3,z3]).T.flatten()
+
+        # Only move arrow tip
+        vertices[8::9,:] += op_flow[:, 3:]*2.0
+        vertices[:, 0] += np.repeat(op_flow[:,0], 9)
+        vertices[:, 1] += np.repeat(op_flow[:,1], 9)
+        vertices[:, 2] += np.repeat(op_flow[:,2], 9)
+        vertices = vertices.flatten()
         return vertices

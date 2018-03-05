@@ -81,7 +81,7 @@ class OpenGlViewer:
             image = Image.frombytes("RGB", (width, height), screenshot)
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
             import glob
-            frame_num = len(glob.glob('/Users/mpeven/Documents/PhD/Activity_Recognition/screenshots/*'))
+            frame_num = len(glob.glob('/Users/mpeven/Projects/Activity_Recognition/screenshots/*'))
             image.save('screenshots/frame_{:05}.jpg'.format(frame_num))
             print(self.frame)
             if self.frame == (self.num_frames - 1):

@@ -1,6 +1,7 @@
 # TODO
 # - Better docs -- use sphinx (or something)
 # - Turn this into an installable python module
+# - Fix cache code to use directories defined up at top
 
 
 '''
@@ -8,21 +9,6 @@ NTU RGB+D Action Recognition Dataset helper
 
 website: http://rose1.ntu.edu.sg/Datasets/actionRecognition.asp
 github: https://github.com/shahroudy/NTURGB-D
-
-
-
-Functions:
-- load
-    loads metadata into a pickle file (only needs to be called once)
-- get_rgb_vid_images
-- get_ir_vid_images
-- get_depth_images
-    gets a numpy array of all the values for each frame in a video in the dataset
-- get_point_clouds
-    gets all point
-- get_2D_optical_flow
-    gets 2D optical flow maps
--
 '''
 import sys, os, glob
 import numpy as np
@@ -42,24 +28,30 @@ from progress_meter import ProgressMeter
 
 ##################################################
 # Dataset paths
+
+### Mac
+# op_flow_3D_dir = "/Users/mpeven/Projects/Activity_Recognition/cache/optical_flow_3D"
+
+### Titan
+metadata_path    = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/metadata.pickle'
 rgb_vid_dir      = '/hdd/Datasets/NTU/nturgb+d_rgb'
 ir_vid_dir       = '/hdd/Datasets/NTU/nturgb+d_ir'
 depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
 masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
 skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
-# marcc
+op_flow_3D_dir   = '/hdd/Datasets/NTU/nturgb+d_optical_flow_3D'
+
+### MARCC
+# metadata_path    = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/metadata.pickle'
 # rgb_vid_dir      = '/home-3/mpeven1@jhu.edu/data/nturgb+d_rgb'
 # ir_vid_dir       = '/home-3/mpeven1@jhu.edu/data/nturgb+d_ir'
 # depth_dir        = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth'
 # masked_depth_dir = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth_masked'
 # skeleton_dir     = '/home-3/mpeven1@jhu.edu/data/nturgb+d_skeletons'
+# op_flow_3D_dir  = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/optical_flow_3D'
 
-# Cache path
-dir_path         = os.path.dirname(os.path.realpath(__file__))
-cache_dir        = os.path.join(dir_path, 'cache')
-# cache_dir        = os.path.join('/home-3/mpeven1@jhu.edu/work/dev_mp', 'nturgb_cache') # marcc
-# op_flow_3D_cache = "/hdd/Datasets/NTU/nturgb+d_optical_flow_3D"
-op_flow_3D_cache = "/Users/mpeven/Documents/PhD/Activity_Recognition/cache/optical_flow_3D"
+### GPU Server
+# metadata_path    = '/home/mpeven1/rambo/home/mpeven/ntu_rgb/cache/metadata.pickle'
 
 
 
@@ -72,7 +64,7 @@ compiled_regex = re.compile('.*S(\d{3})C(\d{3})P(\d{3})R(\d{3})A(\d{3}).*')
 ##################################################
 # Subject ids used in original paper for training
 TRAIN_IDS = [1, 2, 4, 5, 8, 9, 13, 14, 15, 16, 17, 18, 19, 25, 27, 28, 31, 34, 35, 38]
-TRAIN_VALID_IDS = ([1, 2, 5, 8, 9, 13, 14, 15, 16, 18, 19, 25, 27, 28, 31, 34, 38], [4, 17, 25, 35])
+TRAIN_VALID_IDS = ([1, 2, 5, 8, 9, 13, 14, 15, 16, 18, 19, 27, 28, 31, 34, 38], [4, 17, 25, 35])
 
 
 
@@ -172,7 +164,7 @@ class NTU:
 
 
         # Pickle metadata for later
-        self.cache(self.metadata)
+        pickle.dump(self.metadata, open(metadata_path, 'wb'))
 
         return self.metadata
 
@@ -189,13 +181,13 @@ class NTU:
         metadata : A list of dicts with information about the videos
         '''
         # TODO: remove
-        return pickle.load(open(os.path.join(cache_dir, 'metadata.pickle'), 'rb'))
+        return pickle.load(open(metadata_path, 'rb'))
         ##############
 
-        if 'metadata.pickle' in os.listdir(cache_dir):
+        if os.path.isfile(metadata_path):
             if yesno('metadata.pickle found in cache. Use this file?'):
                 self.skip_load = True
-                return pickle.load(open(os.path.join(cache_dir, 'metadata.pickle'), 'rb'))
+                return pickle.load(metadata_path, 'rb')
 
         if yesno('Cached metadata not found. Want to create it now?'):
             return self.load_metadata()
@@ -222,118 +214,21 @@ class NTU:
         # Get the train split ids
         train_ids_camera  = [1, 2]
 
-        # Set the train splits
+        # Cross-Subject splits
         self.train_split_subject = list(
             dataset[dataset.performer.isin(TRAIN_IDS)]['video_index'])
-        self.train_split_camera  = list(
-            dataset[dataset.performer.isin(train_ids_camera)]['camera'])
-
-        # Set the validation/train splits
         self.train_split_subject_with_validation = list(
             dataset[dataset.performer.isin(TRAIN_VALID_IDS[0])]['video_index'])
         self.validation_split_subject = list(
             dataset[dataset.performer.isin(TRAIN_VALID_IDS[1])]['video_index'])
-
-        # Set the test splits
         self.test_split_subject = list(
             dataset[~dataset.performer.isin(TRAIN_IDS)]['video_index'])
+
+        # Cross-View splits
+        self.train_split_camera  = list(
+            dataset[dataset.camera.isin(train_ids_camera)]['video_index'])
         self.test_split_camera  = list(
-            dataset[~dataset.performer.isin(train_ids_camera)]['camera'])
-
-
-
-
-
-    def check_cache(self, item_type, vid_id, existence=False, cached_files_dir=None):
-        '''
-        Checks the cache folder for the item requested
-
-        Returns
-        -------
-        cached_item :
-            - The requested item (if found) or False (if not found)
-            - If existence is True : only returns True or False
-        '''
-
-        # Get full path without extension of file
-        if cached_files_dir is None:
-            cached_file_prefix = os.path.join(cache_dir, item_type, '{:05}'.format(vid_id))
-        else:
-            cached_file_prefix = os.path.join(cached_files_dir, '{:05}'.format(vid_id))
-
-        # Check all extensions to find if file exists
-        file_found = False
-        for ext in ['.pickle', '.npy', '.npz']:
-            cached_file_path = cached_file_prefix + ext
-            if os.path.isfile(cached_file_path):
-                file_found = True
-                break
-
-        # Return boolean if parameter set
-        if existence:
-            return file_found
-
-        # Return none if not found
-        if not file_found:
-            return None
-
-        # File found, load it correctly based on extension
-        # print("Loading {} from cache".format(cached_file_path))
-        if ext == '.pickle':
-            return pickle.load(open(cached_file_path, 'rb'))
-        elif ext == '.npy':
-            return np.load(cached_file_path)
-        elif ext == '.npz':
-            return np.load(cached_file_path)['arr_0']
-
-        # Shouldn't get this far
-        raise FileNotFoundError("Reached end of control flow - something went wrong")
-        return None
-
-
-
-
-
-    def cache(self, item, item_name, item_id=None, compress=False):
-        '''
-        Saves the item in the cache folder
-        '''
-        # Make cache folder for indexed items (if it doesn't exist)
-        if item_id is not None:
-            directory = os.path.join(cache_dir, item_name)
-            if not os.path.isdir(directory):
-                os.makedirs(directory)
-
-        # Item already cached
-        if item_id is not None:
-            cached_files = os.listdir(os.path.join(cache_dir, item_name))
-            cached_item_ids = [os.path.splitext(path)[0] for path in cached_files]
-            if '{:05}'.format(item_id) in cached_item_ids:
-                print("{}/{:05} already cached, skipping".format(item_name, item_id))
-                return
-        else:
-            if item_name in [os.path.splitext(path)[0] for path in os.listdir(cache_dir)]:
-                print("{} already cached, skipping".format(item_name))
-                return
-
-        # Create the file name
-        if item_id is not None:
-            print("Caching {}/{:05}".format(item_name, item_id))
-            file_prefix = os.path.join(cache_dir, item_name, '{:05}'.format(item_id))
-        else:
-            print("Caching {}".format(item_name))
-            file_prefix = os.path.join(cache_dir, item_name)
-
-        # Use numpy save if a numpy object
-        if type(item) == np.ndarray:
-            if compress:
-                np.savez_compressed(file_prefix + '.npz', item)
-            else:
-                np.save(file_prefix + '.npy', item)
-
-        # Use pickle on all other objects
-        else:
-            pickle.dump(item, open(file_prefix + '.pickle', 'wb'))
+            dataset[~dataset.camera.isin(train_ids_camera)]['video_index'])
 
 
 
@@ -536,11 +431,9 @@ class NTU:
         '''
 
         # Check cache for optical flow
-        if self.check_cache('optical_flow_3D', vid_id, existence=True,#):
-                            cached_files_dir=op_flow_3D_cache): # If marcc dump on hdd
+        if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'):
             # print("Found 3D optical flow {:05} in cache".format(vid_id))
-            return self.check_cache('optical_flow_3D', vid_id, existence=False,#)
-                                cached_files_dir=op_flow_3D_cache) # If marcc dump on hdd
+            return np.load(op_flow_3D_dir + '/{:05}.npz')['arr_0']
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
         rgb_xyz = self.get_rgb_3D_maps(vid_id)
@@ -592,7 +485,7 @@ class NTU:
             op_flow_3D_vec[idx,:lens[idx]] += frame
 
         if cache:
-            self.cache(op_flow_3D_vec, 'optical_flow_3D', vid_id, compress=True)
+            np.savez_compressed(op_flow_3D_dir + '/{:05}', op_flow_3D_vec)
 
         return op_flow_3D
 
@@ -620,13 +513,8 @@ class NTU:
         '''
         VOXEL_SIZE = 100
 
-        # Check cache for voxel flow
-        if self.check_cache('voxel_flow_{}'.format(VOXEL_SIZE), vid_id, existence=True):
-            print("Found voxel flow {:05} in cache".format(vid_id))
-            return self.check_cache('voxel_flow_{}'.format(VOXEL_SIZE), vid_id)
-
         # Get 3D optical flow
-        op_flow_3D = self.get_3D_optical_flow(vid_id, cache=True)
+        op_flow_3D = self.get_3D_optical_flow(vid_id)
 
         # Pull useful stats out of optical flow
         num_frames = len(op_flow_3D)
@@ -655,36 +543,7 @@ class NTU:
             voxel_flow_tensor[frame, 3, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
             voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z] = 1
 
-        # Cache the voxel flow
-        if cache:
-            self.cache(voxel_flow_tensor, 'voxel_flow_{}'.format(VOXEL_SIZE), vid_id, compress=True)
-
         return voxel_flow_tensor
-
-
-
-
-
-    def rotate_voxel_flow(self, voxel_flow_tensor):
-        '''
-        Rotate the voxel flow tensor by a given amount
-
-        Parameters
-        ----------
-        vid_id : int
-            The video to get the rotated voxel flow for. {1-56879}
-
-        Returns
-        -------
-        voxel_flow_tensor : ndarray
-            The rotated voxel flow, shape [frames,  4,  X,  X,  X]
-            X = the size of the voxel grid
-        '''
-        # return scipy.ndimage.interpolation.rotate(voxel_flow_tensor, 20,
-        pass
-
-
-
 
 
 
@@ -910,4 +769,4 @@ def create_all_3D_op_flows():
         print("Total time: {}".format(dt.datetime.now() - start))
 
 if __name__ == '__main__':
-    create_voxel_flows()
+    create_all_2D_op_flows()
