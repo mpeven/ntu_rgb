@@ -1,3 +1,4 @@
+from __future__ import division
 import sys
 from itertools import product
 import cv2
