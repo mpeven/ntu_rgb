@@ -1,7 +1,6 @@
 # TODO
 # - Better docs -- use sphinx (or something)
 # - Turn this into an installable python module
-# - Fix cache code to use directories defined up at top
 
 
 '''
@@ -30,16 +29,22 @@ from progress_meter import ProgressMeter
 # Dataset paths
 
 ### Mac
-# op_flow_3D_dir = "/Users/mpeven/Projects/Activity_Recognition/cache/optical_flow_3D"
+metadata_path    = '/Users/mpeven/Projects/Activity_Recognition/cache/metadata.pickle'
+op_flow_3D_dir   = '/Users/mpeven/Projects/Activity_Recognition/cache/optical_flow_3D'
+rgb_vid_dir      = '/Users/mpeven/Projects/Activity_Recognition/cache/nturgb+d_rgb'
+ir_vid_dir       = '/Users/mpeven/Projects/Activity_Recognition/cache'
+depth_dir        = '/Users/mpeven/Projects/Activity_Recognition/cache'
+masked_depth_dir = '/Users/mpeven/Projects/Activity_Recognition/cache/nturgb+d_depth_masked'
+skeleton_dir     = '/Users/mpeven/Projects/Activity_Recognition/cache'
 
 ### Titan
-metadata_path    = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/metadata.pickle'
-rgb_vid_dir      = '/hdd/Datasets/NTU/nturgb+d_rgb'
-ir_vid_dir       = '/hdd/Datasets/NTU/nturgb+d_ir'
-depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
-masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
-skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
-op_flow_3D_dir   = '/hdd/Datasets/NTU/nturgb+d_optical_flow_3D'
+# metadata_path    = '/home/mike/Documents/Activity_Recognition/cache/metadata.pickle'
+# rgb_vid_dir      = '/hdd/Datasets/NTU/nturgb+d_rgb'
+# ir_vid_dir       = '/hdd/Datasets/NTU/nturgb+d_ir'
+# depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
+# masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
+# skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
+# op_flow_3D_dir   = '/hdd/Datasets/NTU/nturgb+d_optical_flow_3D'
 
 ### MARCC
 # metadata_path    = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/metadata.pickle'
@@ -52,7 +57,11 @@ op_flow_3D_dir   = '/hdd/Datasets/NTU/nturgb+d_optical_flow_3D'
 
 ### GPU Server
 # metadata_path    = '/home/mpeven1/rambo/home/mpeven/ntu_rgb/cache/metadata.pickle'
-
+# rgb_vid_dir      = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_rgb'
+# ir_vid_dir       = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_ir'
+# depth_dir        = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth'
+# masked_depth_dir = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth_masked'
+# skeleton_dir     = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_skeletons'
 
 
 ##################################################
@@ -431,9 +440,9 @@ class NTU:
         '''
 
         # Check cache for optical flow
-        if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'):
+        if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'.format(vid_id)):
             # print("Found 3D optical flow {:05} in cache".format(vid_id))
-            return np.load(op_flow_3D_dir + '/{:05}.npz')['arr_0']
+            return np.load(op_flow_3D_dir + '/{:05}.npz'.format(vid_id))['arr_0']
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
         rgb_xyz = self.get_rgb_3D_maps(vid_id)
@@ -485,7 +494,7 @@ class NTU:
             op_flow_3D_vec[idx,:lens[idx]] += frame
 
         if cache:
-            np.savez_compressed(op_flow_3D_dir + '/{:05}', op_flow_3D_vec)
+            np.savez_compressed(op_flow_3D_dir + '/{:05}'.format(vid_id), op_flow_3D_vec)
 
         return op_flow_3D
 

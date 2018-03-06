@@ -1,6 +1,7 @@
 import sys
 import pickle
 import numpy as np
+import scipy
 from opengl_viewer.opengl_viewer import OpenGlViewer
 from ntu_rgb import NTU
 
@@ -17,7 +18,12 @@ def record_multiple_voxel_flow():
 
 
 def view_one_voxel_flow():
-    OpenGlViewer(NTU().get_voxel_flow(0)).view()
+    vox_flow = NTU().get_voxel_flow(57)
+
+    ##### Rotate
+    # vox_flow = scipy.ndimage.interpolation.rotate(vox_flow, 10, (2,4), reshape=False, order=0)
+
+    OpenGlViewer(vox_flow).view()
 
 
 if __name__ == '__main__':

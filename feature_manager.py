@@ -20,7 +20,7 @@ from tqdm import tqdm
 ####################
 # Files & Directories
 
-CACHE_DIR = "/hdd/Datasets/NTU/nturgb+d_features"
+CACHE_DIR = "/home/mike/Documents/Activity_Recognition/nturgb+d_features_small"
 
 #
 ####################

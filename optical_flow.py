@@ -13,6 +13,7 @@ def get_animation(images, flow_maps):
         # Get the gray image but add rgb channels (for color arrows)
         img = images[i].copy()
         img = np.stack((img,)*3, axis=2)
+        # img = (img/2).astype(np.uint8)
 
         # Return an arrow if the flow vector is greater than 2.0
         def get_arrow(p):
@@ -22,13 +23,13 @@ def get_animation(images, flow_maps):
                 return None
 
         # Draw all the arrows to the image
-        step_size = int(img.shape[0]/150) # draw arrows every 0.5% of the image size
+        step_size = int(img.shape[0]/100) # draw arrows every 0.5% of the image size
         for y in range(int(img.shape[0]/step_size)):
             for x in range(int(img.shape[1]/step_size)):
                 pt = (x*step_size,y*step_size)
                 new_pt = get_arrow(pt)
                 if new_pt is not None:
-                    cv2.arrowedLine(img, pt1=tuple(pt), pt2=tuple(new_pt), color=(0, 255, 0), thickness=2, tipLength=.2)
+                    cv2.arrowedLine(img, pt1=tuple(pt), pt2=tuple(new_pt), color=(0, 255, 0), thickness=1, tipLength=.2)
         return img
 
     # Plot all the images

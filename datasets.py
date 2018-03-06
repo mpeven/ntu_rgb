@@ -4,6 +4,7 @@ from feature_manager import FeatureManager
 import numpy as np
 import scipy
 import itertools
+import cv2
 
 import torch
 from torch.utils.data import Dataset
@@ -13,7 +14,8 @@ import torchvision.transforms as transforms
 ### Cache dirs
 CACHE_2D_IMAGES  = './nturgb+d_rgb_masked'
 CACHE_3D_IMAGES  = '/hdd/Datasets/NTU/nturgb+d_images_3D'
-CACHE_2D_OP_FLOW = '/hdd/Datasets/NTU/nturgb+d_op_flow_2D'
+CACHE_2D_OP_FLOW = '/hdd/Datasets/NTU/nturgb+d_op_flow_2D_npy'
+CACHE_2D_OP_FLOW_PNG = '/hdd/Datasets/NTU/nturgb+d_op_flow_2D_png'
 ###
 
 
@@ -215,14 +217,22 @@ class NTURGBDataset(Dataset):
         # Optical flow 3D
         if self.op_flow:
             op_flow = self.features.load_feature(vid_id).astype(np.float32)
-            op_flow = self.op_flow_transforms(op_flow)
+            # op_flow = self.op_flow_transforms(op_flow)
             if self.single_feature:
                 op_flow = op_flow[2]
             to_return.append(op_flow)
 
         # Optical flow 2D
         if self.op_flow_2D:
-            op_flow_2D = np.load('{}/{:05}.npz'.format(CACHE_2D_OP_FLOW, vid_id))['arr_0']
+            op_flow_2D = np.zeros([50, 400, 400, 2])
+            for i in range(50):
+                im = cv2.imread('{}/{:05}/{:02}.png'.format(CACHE_2D_OP_FLOW_PNG, vid_id, i))
+                op_flow_2D[i,:,:,0] = im[:,:,0]
+                op_flow_2D[i,:,:,1] = im[:,:,1]
+            # Rescale & Reshape
+            m0, m1 = np.load('{}/{:05}/min_max.npy'.format(CACHE_2D_OP_FLOW_PNG, vid_id))
+            op_flow_2D = (((op_flow_2D/255.)*(m1-m0))-np.abs(m0)).reshape([5,20,400,400]).astype(np.float32)
+
             if self.single_feature:
                 op_flow_2D = op_flow_2D[2]
             to_return.append(op_flow_2D)
