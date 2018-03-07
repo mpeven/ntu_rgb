@@ -32,9 +32,13 @@ class NTURGBDataset(Dataset):
     Attributes
     ----------
     op_flow : bool
-        Whether to return the optical flow
+        Whether to return the 3D optical flow
+    op_flow_2D : bool
+        Whether to return the 2D optical flow
     images : bool
         Whether to return the images
+    images_3D : bool
+        Whether to return the 3D images
     single_feature : bool
         Whether to return a single feature per video or multiple
     test : bool
@@ -43,13 +47,18 @@ class NTURGBDataset(Dataset):
         Return validation set videos
     full_train : bool
         No validation set - all training data is used
+    cross_view : bool
+        Whether to return the cross-view split instead of cross-subject
+    augmentation : bool
+        Whether to perform data augmentation
     '''
     def __init__(self,
                  images=False, images_3D=False, # Image data to return
                  op_flow=False, op_flow_2D=False, # Optical flow data to return
                  single_feature=False, # Single feature per video
                  test=False, validation=False, full_train=False, # Data split
-                 cross_view=False # Data split type
+                 cross_view=False, # Data split type
+                 augmentation=True, # Data augmentation
                 ):
         # Underlying dataset and features
         self.dataset = NTU()
@@ -61,6 +70,7 @@ class NTURGBDataset(Dataset):
         self.op_flow = op_flow
         self.op_flow_2D = op_flow_2D
         self.single_feature = single_feature
+        self.augmentation = augmentation
 
         # Train, validation, test split
         self.train = (test == False) and (validation == False)
@@ -163,11 +173,6 @@ class NTURGBDataset(Dataset):
             # Rotate positions
             rot_mat = scipy.ndimage.interpolation.rotate(rot_array, angle, (0,1), reshape=False, order=0)
             op_flow_new = np.zeros(op_flow.shape).astype(np.float32)
-            # for x in range(vox_size):
-            #     for z in range(vox_size):
-            #         tup = all_tups[rot_mat[x,z]]
-            #         op_flow_new[:,:,x,:,z] = op_flow[:,:,tup[0],:,tup[1]]
-            # rotated = np.zeros(to_rotate.shape)
             tup = all_tups[rot_mat]
             op_flow_new = op_flow[:,:,tup[:, :, 0],:,tup[:, :, 1]].transpose(2,3,0,4,1)
 
@@ -203,7 +208,8 @@ class NTURGBDataset(Dataset):
         # Images
         if self.images:
             images = np.load('{}/{:05}.npy'.format(CACHE_2D_IMAGES, vid_id))
-            images = self.image_transforms(images)
+            if self.augmentation:
+                images = self.image_transforms(images)
             if self.single_feature:
                 images = images[2]
             to_return.append(images)
@@ -217,7 +223,8 @@ class NTURGBDataset(Dataset):
         # Optical flow 3D
         if self.op_flow:
             op_flow = self.features.load_feature(vid_id).astype(np.float32)
-            # op_flow = self.op_flow_transforms(op_flow)
+            if self.augmentation:
+                op_flow = self.op_flow_transforms(op_flow)
             if self.single_feature:
                 op_flow = op_flow[2]
             to_return.append(op_flow)
@@ -277,11 +284,13 @@ def get_train_valid_loader(batch_size, images=False, images_3D=False, op_flow=Fa
 
 
 def get_train_loader(batch_size, images=False, images_3D=False, op_flow=False,
-                     op_flow_2D=False, single_feature=False, cross_view=False):
+                     op_flow_2D=False, single_feature=False, cross_view=False,
+                     augmentation=True):
     dataset = NTURGBDataset(images=images, images_3D=images_3D,
                             op_flow=op_flow, op_flow_2D=op_flow_2D,
                             single_feature=single_feature,
-                            full_train=True, cross_view=cross_view)
+                            full_train=True, cross_view=cross_view,
+                            augmentation=augmentation)
 
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                        shuffle=True, num_workers=4,
@@ -290,11 +299,13 @@ def get_train_loader(batch_size, images=False, images_3D=False, op_flow=False,
 
 
 def get_test_loader(batch_size, images=False, images_3D=False, op_flow=False,
-                    op_flow_2D=False, single_feature=False, cross_view=False):
+                    op_flow_2D=False, single_feature=False, cross_view=False,
+                    augmentation=True):
     dataset = NTURGBDataset(test=True, images=images, images_3D=images_3D,
                             op_flow=op_flow, op_flow_2D=op_flow_2D,
                             single_feature=single_feature,
-                            cross_view=cross_view)
+                            cross_view=cross_view,
+                            augmentation=augmentation)
 
     return torch.utils.data.DataLoader(dataset, batch_size=batch_size,
                                        shuffle=True, num_workers=4,
