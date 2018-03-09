@@ -9,6 +9,7 @@ NTU RGB+D Action Recognition Dataset helper
 website: http://rose1.ntu.edu.sg/Datasets/actionRecognition.asp
 github: https://github.com/shahroudy/NTURGB-D
 '''
+# from __future__ import division
 import sys, os, glob
 import numpy as np
 import pandas as pd
@@ -23,45 +24,8 @@ from prompter import yesno
 import pickle
 from progress_meter import ProgressMeter
 
+from config import *
 
-
-##################################################
-# Dataset paths
-
-### Mac
-metadata_path    = '/Users/mpeven/Projects/Activity_Recognition/cache/metadata.pickle'
-op_flow_3D_dir   = '/Users/mpeven/Projects/Activity_Recognition/cache/optical_flow_3D'
-rgb_vid_dir      = '/Users/mpeven/Projects/Activity_Recognition/cache/nturgb+d_rgb'
-ir_vid_dir       = '/Users/mpeven/Projects/Activity_Recognition/cache'
-depth_dir        = '/Users/mpeven/Projects/Activity_Recognition/cache'
-masked_depth_dir = '/Users/mpeven/Projects/Activity_Recognition/cache/nturgb+d_depth_masked'
-skeleton_dir     = '/Users/mpeven/Projects/Activity_Recognition/cache'
-
-### Titan
-# metadata_path    = '/home/mike/Documents/Activity_Recognition/cache/metadata.pickle'
-# rgb_vid_dir      = '/hdd/Datasets/NTU/nturgb+d_rgb'
-# ir_vid_dir       = '/hdd/Datasets/NTU/nturgb+d_ir'
-# depth_dir        = '/hdd/Datasets/NTU/nturgb+d_depth'
-# masked_depth_dir = '/hdd/Datasets/NTU/nturgb+d_depth_masked'
-# skeleton_dir     = '/hdd/Datasets/NTU/nturgb+d_skeletons'
-# op_flow_3D_dir   = '/hdd/Datasets/NTU/nturgb+d_optical_flow_3D'
-
-### MARCC
-# metadata_path    = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/metadata.pickle'
-# rgb_vid_dir      = '/home-3/mpeven1@jhu.edu/data/nturgb+d_rgb'
-# ir_vid_dir       = '/home-3/mpeven1@jhu.edu/data/nturgb+d_ir'
-# depth_dir        = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth'
-# masked_depth_dir = '/home-3/mpeven1@jhu.edu/data/nturgb+d_depth_masked'
-# skeleton_dir     = '/home-3/mpeven1@jhu.edu/data/nturgb+d_skeletons'
-# op_flow_3D_dir  = '/home-3/mpeven1@jhu.edu/work/dev_mp/nturgb_cache/optical_flow_3D'
-
-### GPU Server
-# metadata_path    = '/home/mpeven1/rambo/home/mpeven/ntu_rgb/cache/metadata.pickle'
-# rgb_vid_dir      = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_rgb'
-# ir_vid_dir       = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_ir'
-# depth_dir        = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth'
-# masked_depth_dir = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth_masked'
-# skeleton_dir     = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_skeletons'
 
 
 ##################################################
@@ -112,14 +76,14 @@ dist_array = np.array([k1, k2, k3, p1, p2])
 
 
 
-class NTU:
+class NTU():
     def __init__(self):
-        self.num_vids              = len(self.get_files(rgb_vid_dir))
-        self.rgb_vids              = self.get_files(rgb_vid_dir)
-        self.ir_vids               = self.get_files(ir_vid_dir)
-        self.depth_img_dirs        = self.get_files(depth_dir)
-        self.masked_depth_img_dirs = self.get_files(masked_depth_dir)
-        self.skeleton_files        = self.get_files(skeleton_dir)
+        self.num_vids              = len(self.get_files(CACHE_RGB_VID))
+        self.rgb_vids              = self.get_files(CACHE_RGB_VID)
+        self.ir_vids               = self.get_files(CACHE_IR_VID)
+        self.depth_img_dirs        = self.get_files(CACHE_DEPTH)
+        self.masked_depth_img_dirs = self.get_files(CACHE_MASKED_DEPTH)
+        self.skeleton_files        = self.get_files(CACHE_SKELETONS)
 
         # Check if metadata saved to disk
         self.metadata              = self.check_metadata()
@@ -173,7 +137,7 @@ class NTU:
 
 
         # Pickle metadata for later
-        pickle.dump(self.metadata, open(metadata_path, 'wb'))
+        pickle.dump(self.metadata, open(CACHE_METADATA, 'wb'))
 
         return self.metadata
 
@@ -190,13 +154,13 @@ class NTU:
         metadata : A list of dicts with information about the videos
         '''
         # TODO: remove
-        return pickle.load(open(metadata_path, 'rb'))
+        return pickle.load(open(CACHE_METADATA, 'rb'))
         ##############
 
-        if os.path.isfile(metadata_path):
+        if os.path.isfile(CACHE_METADATA):
             if yesno('metadata.pickle found in cache. Use this file?'):
                 self.skip_load = True
-                return pickle.load(metadata_path, 'rb')
+                return pickle.load(CACHE_METADATA, 'rb')
 
         if yesno('Cached metadata not found. Want to create it now?'):
             return self.load_metadata()
@@ -440,9 +404,9 @@ class NTU:
         '''
 
         # Check cache for optical flow
-        if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'.format(vid_id)):
+        if os.path.isfile(CACHE_3D_OP_FLOW + '/{:05}.npz'.format(vid_id)):
             # print("Found 3D optical flow {:05} in cache".format(vid_id))
-            return np.load(op_flow_3D_dir + '/{:05}.npz'.format(vid_id))['arr_0']
+            return np.load(CACHE_3D_OP_FLOW + '/{:05}.npz'.format(vid_id))['arr_0']
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
         rgb_xyz = self.get_rgb_3D_maps(vid_id)
@@ -494,7 +458,7 @@ class NTU:
             op_flow_3D_vec[idx,:lens[idx]] += frame
 
         if cache:
-            np.savez_compressed(op_flow_3D_dir + '/{:05}'.format(vid_id), op_flow_3D_vec)
+            np.savez_compressed(CACHE_3D_OP_FLOW + '/{:05}'.format(vid_id), op_flow_3D_vec)
 
         return op_flow_3D
 
@@ -778,4 +742,5 @@ def create_all_3D_op_flows():
         print("Total time: {}".format(dt.datetime.now() - start))
 
 if __name__ == '__main__':
-    create_all_2D_op_flows()
+    dataset = NTU()
+    x = dataset.get_

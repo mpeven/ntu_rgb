@@ -10,13 +10,7 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as transforms
 
-
-### Cache dirs
-CACHE_2D_IMAGES  = './nturgb+d_rgb_masked'
-CACHE_3D_IMAGES  = '/hdd/Datasets/NTU/nturgb+d_images_3D'
-CACHE_2D_OP_FLOW = '/hdd/Datasets/NTU/nturgb+d_op_flow_2D_npy'
-CACHE_2D_OP_FLOW_PNG = '/hdd/Datasets/NTU/nturgb+d_op_flow_2D_png'
-###
+from config import *
 
 
 vox_size=54
@@ -52,29 +46,22 @@ class NTURGBDataset(Dataset):
     augmentation : bool
         Whether to perform data augmentation
     '''
-    def __init__(self,
-                 images=False, images_3D=False, # Image data to return
-                 op_flow=False, op_flow_2D=False, # Optical flow data to return
-                 single_feature=False, # Single feature per video
-                 test=False, validation=False, full_train=False, # Data split
-                 cross_view=False, # Data split type
-                 augmentation=True, # Data augmentation
-                ):
+    def __init__(self, test=False, validation=False, full_train=False):
         # Underlying dataset and features
         self.dataset = NTU()
         self.features = FeatureManager()
 
         # What to return
-        self.images = images
-        self.images_3D = images_3D
-        self.op_flow = op_flow
-        self.op_flow_2D = op_flow_2D
-        self.single_feature = single_feature
-        self.augmentation = augmentation
+        self.images = DATA_IMAGES
+        self.images_3D = DATA_IMAGES_3D
+        self.op_flow = DATA_OP_FLOW
+        self.op_flow_2D = DATA_OP_FLOW_2D
+        self.single_feature = DATA_SINGLE_FEAT
+        self.augmentation = DATA_AUGMENTATION
 
         # Train, validation, test split
         self.train = (test == False) and (validation == False)
-        if cross_view == False:
+        if DATA_CROSS_VIEW == False:
             if test: self.vid_ids = self.dataset.test_split_subject
             elif validation: self.vid_ids = self.dataset.validation_split_subject
             elif full_train: self.vid_ids = self.dataset.train_split_subject
@@ -234,8 +221,8 @@ class NTURGBDataset(Dataset):
             op_flow_2D = np.zeros([50, 400, 400, 2])
             for i in range(50):
                 im = cv2.imread('{}/{:05}/{:02}.png'.format(CACHE_2D_OP_FLOW_PNG, vid_id, i))
-                op_flow_2D[i,:,:,0] = im[:,:,0]
-                op_flow_2D[i,:,:,1] = im[:,:,1]
+                op_flow_2D[i,:,:,0:1] = im[:,:,0:1]
+
             # Rescale & Reshape
             m0, m1 = np.load('{}/{:05}/min_max.npy'.format(CACHE_2D_OP_FLOW_PNG, vid_id))
             op_flow_2D = (((op_flow_2D/255.)*(m1-m0))-np.abs(m0)).reshape([5,20,400,400]).astype(np.float32)
@@ -254,28 +241,22 @@ class NTURGBDataset(Dataset):
 
 
 
-def get_train_valid_loader(batch_size, images=False, images_3D=False, op_flow=False,
-                           op_flow_2D=False, single_feature=False):
+def get_train_valid_loader():
     # Create the dataset
-    train_dataset = NTURGBDataset(images=images, images_3D=images_3D, op_flow=op_flow,
-                                  op_flow_2D=op_flow_2D,
-                                  single_feature=single_feature)
-    valid_dataset = NTURGBDataset(validation=True, images=images,
-                                  images_3D=images_3D, op_flow=op_flow,
-                                  op_flow_2D=op_flow_2D,
-                                  single_feature=single_feature)
+    train_dataset = NTURGBDataset()
+    valid_dataset = NTURGBDataset(validation=True)
 
     # Seed the shuffler
     np.random.seed(149)
     torch.manual_seed(149)
 
     train_loader = torch.utils.data.DataLoader(train_dataset,
-                    batch_size=batch_size, shuffle=True,
-                    num_workers=4, pin_memory=True)
+                    batch_size=DATA_BATCH_SIZE, shuffle=True,
+                    num_workers=NUM_WORKERS, pin_memory=True)
 
     valid_loader = torch.utils.data.DataLoader(valid_dataset,
-                    batch_size=batch_size, shuffle=True,
-                    num_workers=4, pin_memory=True)
+                    batch_size=DATA_BATCH_SIZE, shuffle=True,
+                    num_workers=NUM_WORKERS, pin_memory=True)
 
     return (train_loader, valid_loader)
 
@@ -283,30 +264,16 @@ def get_train_valid_loader(batch_size, images=False, images_3D=False, op_flow=Fa
 
 
 
-def get_train_loader(batch_size, images=False, images_3D=False, op_flow=False,
-                     op_flow_2D=False, single_feature=False, cross_view=False,
-                     augmentation=True):
-    dataset = NTURGBDataset(images=images, images_3D=images_3D,
-                            op_flow=op_flow, op_flow_2D=op_flow_2D,
-                            single_feature=single_feature,
-                            full_train=True, cross_view=cross_view,
-                            augmentation=augmentation)
-
-    return torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                       shuffle=True, num_workers=4,
+def get_train_loader():
+    dataset = NTURGBDataset(full_train=True)
+    return torch.utils.data.DataLoader(dataset, batch_size=DATA_BATCH_SIZE,
+                                       shuffle=True, num_workers=NUM_WORKERS,
                                        pin_memory=True)
 
 
 
-def get_test_loader(batch_size, images=False, images_3D=False, op_flow=False,
-                    op_flow_2D=False, single_feature=False, cross_view=False,
-                    augmentation=True):
-    dataset = NTURGBDataset(test=True, images=images, images_3D=images_3D,
-                            op_flow=op_flow, op_flow_2D=op_flow_2D,
-                            single_feature=single_feature,
-                            cross_view=cross_view,
-                            augmentation=augmentation)
-
-    return torch.utils.data.DataLoader(dataset, batch_size=batch_size,
-                                       shuffle=True, num_workers=4,
+def get_test_loader():
+    dataset = NTURGBDataset(test=True)
+    return torch.utils.data.DataLoader(dataset, batch_size=DATA_BATCH_SIZE,
+                                       shuffle=False, num_workers=NUM_WORKERS,
                                        pin_memory=True)

@@ -13,6 +13,7 @@ import torch.nn as nn
 import torchvision.models as models
 from torch.autograd import Variable
 
+from config import *
 
 
 ####################
@@ -22,49 +23,34 @@ T = 10 # Number of frames for each feature
 C = 3  # Number of channels
 ####################
 
-####################
-# Hyper parameters
-hidden_dimension_size = 64
-lstm_dropout = 0.5
-####################
-
 
 
 
 class Model_1(nn.Module):
     ''' Spatial '''
-    def __init__(self, hidden_dimension_size, lstm_dropout, frozen_weights=False,
-                 single_feature=False):
+    def __init__(self):
         super(Model_1, self).__init__()
 
         # Single feature or multiple
-        self.single_feature = single_feature
+        self.single_feature = DATA_SINGLE_FEAT
 
         # Set up base image feature extractor
         self.base_model = nn.Sequential(*list(models.resnet18(pretrained=True).children())[:-1])
         base_model_fc_size = list(self.base_model.parameters())[-1].size(0)
 
         # Freeze weights
-        if frozen_weights:
-            for param in self.base_model.parameters():
-                param.requires_grad = False
-
-        # TEST ############
-        ###################
         for param in list(self.base_model.parameters())[:30]:
             param.requires_grad = False
 
         # LSTM Layer
-        self.hidden_dimension_size = hidden_dimension_size
-        self.lstm_dropout = lstm_dropout
         self.lstmlayer = nn.LSTM(
             input_size  = base_model_fc_size,
-            hidden_size = hidden_dimension_size,
-            dropout     = lstm_dropout
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
         )
 
         # Final layer
-        self.preds = nn.Linear(hidden_dimension_size, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
         self.preds_single_feature = nn.Linear(base_model_fc_size, NUM_CLASSES)
 
     def forward(self, X):
@@ -86,7 +72,7 @@ class Model_1(nn.Module):
 
 class Model_2(nn.Module):
     ''' Temporal (3D optical flow) '''
-    def __init__(self, hidden_dimension_size, lstm_dropout, single_feature=False):
+    def __init__(self, single_feature=False):
         super(Model_2, self).__init__()
 
         # Single feature or multiple
@@ -118,16 +104,14 @@ class Model_2(nn.Module):
             nn.MaxPool3d(3))
 
         # LSTM Layer
-        self.hidden_dimension_size = hidden_dimension_size
-        self.lstm_dropout = lstm_dropout
         self.lstmlayer = nn.LSTM(
             input_size  = 512,
-            hidden_size = hidden_dimension_size,
-            dropout     = lstm_dropout
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
         )
 
         # Final layer
-        self.preds = nn.Linear(hidden_dimension_size, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
         self.preds_single_feature = nn.Linear(512, NUM_CLASSES)
 
     def forward(self, X):
@@ -156,7 +140,7 @@ class Model_2(nn.Module):
 
 class Model_3(nn.Module):
     ''' 2 Stream '''
-    def __init__(self, hidden_dimension_size, lstm_dropout):
+    def __init__(self):
         super(Model_3, self).__init__()
 
         # Set up base image feature extractor
@@ -164,13 +148,7 @@ class Model_3(nn.Module):
         base_model_fc_size = list(self.base_model.parameters())[-1].size(0)
 
         # Freeze weights
-        # if frozen_weights:
-        #     for param in self.base_model.parameters():
-        #         param.requires_grad = False
-
-        # TEST ############
-        ###################
-        for param in list(self.base_model.parameters())[:51]:
+        for param in list(self.base_model.parameters())[:30]:
             param.requires_grad = False
 
         # Conv layers
@@ -201,19 +179,19 @@ class Model_3(nn.Module):
         # LSTM Layer
         self.lstmlayer_temporal = nn.LSTM(
             input_size  = 512,
-            hidden_size = hidden_dimension_size,
-            dropout     = lstm_dropout
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
         )
         self.lstmlayer_spatial = nn.LSTM(
             input_size  = base_model_fc_size,
-            hidden_size = hidden_dimension_size,
-            dropout     = lstm_dropout
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
         )
 
         # Final layer
         # self.preds_temporal = nn.Linear(hidden_dimension_size, NUM_CLASSES)
         # self.preds_spatial  = nn.Linear(hidden_dimension_size, NUM_CLASSES)
-        self.preds_two_stream = nn.Linear(hidden_dimension_size + hidden_dimension_size, NUM_CLASSES)
+        self.preds_two_stream = nn.Linear(HIDDEN_DIM_SIZE + HIDDEN_DIM_SIZE, NUM_CLASSES)
 
     def forward(self, images, op_flow):
         # Temporal - optical flow
@@ -242,17 +220,59 @@ class Model_3(nn.Module):
 
 class Model_4(nn.Module):
     ''' 3D Spatial (3D images) '''
-    def __init__(self, hidden_dimension_size, lstm_dropout, single_feature=False):
+    def __init__(self):
         super(Model_4, self).__init__()
-        pass
+        # Conv layers
+        self.convlayer1 = nn.Sequential(
+            nn.Conv3d(T, 96, kernel_size=3, padding=1),
+            nn.BatchNorm3d(96),
+            nn.ReLU(),
+            nn.MaxPool3d(3))
+        self.convlayer2 = nn.Sequential(
+            nn.Conv3d(96, 256, kernel_size=3, padding=1),
+            nn.BatchNorm3d(256),
+            nn.ReLU(),
+            nn.MaxPool3d(3))
+        self.convlayer3 = nn.Sequential(
+            nn.Conv3d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm3d(512),
+            nn.ReLU(),
+            nn.MaxPool3d(3))
+        self.convlayer4 = nn.Sequential(
+            nn.Conv3d(512, 512, kernel_size=2, padding=1),
+            nn.BatchNorm3d(512),
+            nn.ReLU(),
+            nn.MaxPool3d(3))
+
+        # LSTM Layer
+        self.lstmlayer = nn.LSTM(
+            input_size  = 512,
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
+        )
+
+        # Final layer
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
 
     def forward(self, X):
-        pass
+        # Stack individual image features
+        conv_layers_out = []
+        for chunk in range(X.size(1)):
+            x = self.convlayer1(X[:, chunk])
+            x = self.convlayer2(x)
+            x = self.convlayer3(x)
+            x = self.convlayer4(x)
+            conv_layers_out.append(x)
+        x = torch.squeeze(torch.stack(conv_layers_out))
+
+        # LSTM & final layer
+        x, _ = self.lstmlayer(x)
+        return self.preds(x[-1])
 
 
 class Model_5(nn.Module):
     ''' 2D Temporal (2D optical flow) '''
-    def __init__(self, hidden_dimension_size, lstm_dropout, single_feature=False):
+    def __init__(self, single_feature=False):
         super(Model_5, self).__init__()
 
         # Single feature or multiple
@@ -281,16 +301,14 @@ class Model_5(nn.Module):
             nn.MaxPool2d(3))
 
         # LSTM Layer
-        self.hidden_dimension_size = hidden_dimension_size
-        self.lstm_dropout = lstm_dropout
         self.lstmlayer = nn.LSTM(
             input_size  = 512,
-            hidden_size = hidden_dimension_size,
-            dropout     = lstm_dropout
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
         )
 
         # Final layer
-        self.preds = nn.Linear(hidden_dimension_size, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
         self.preds_single_feature = nn.Linear(512, NUM_CLASSES)
 
     def forward(self, X):

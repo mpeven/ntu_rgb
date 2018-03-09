@@ -3,10 +3,10 @@ Class to manage building, loading, and saving features for an action
 recognition CNN over the NTURGB dataset
 
 
-Features
---------
-The features are subsections of each video represented as voxel flow
-between each frame in the subsection
+Features Implemented
+--------------------
+- 3D voxel flow
+- 3D image as voxel grid
 """
 
 
@@ -16,28 +16,18 @@ from ntu_rgb import NTU
 from tqdm import tqdm
 
 
-
 ####################
 # Files & Directories
-
 CACHE_DIR = "/home/mike/Documents/Activity_Recognition/nturgb+d_features_small"
-
-#
-####################
 
 
 
 ####################
 # Hyper Parameters
-
 # K -- The number of features per video
 K = 5
-
 # T -- The number of frames in each feature
 T = 10
-
-#
-####################
 
 
 
@@ -49,9 +39,9 @@ class FeatureManager:
 
 
 
-    def build_feature(self, vid_id):
+    def build_feature(self, vid_id, voxel_flow=True, image_3D=False):
         """
-        Get the voxel flow, split it up into chunks, stack the chunks
+        Build the specified feature using the dataset wrapper
         """
 
         # Get the voxel flow from the ntu_rgb wrapper
@@ -64,7 +54,15 @@ class FeatureManager:
         for feature_idx in range(K):
             start = int(skip_amount * feature_idx)
             end = int(start + T)
-            feature = np.vstack(vox_flow[start:end,1:,:,:,:]) # Stack frames
+
+            ### Voxel flow
+            if voxel_flow:
+                feature = np.vstack(vox_flow[start:end,1:,:,:,:]) # Stack frames
+
+            ### 3D voxel image
+            if image_3D:
+                feature = vox_flow[start+(10//2),0,:,:,:]
+
             features.append(feature)
 
         # Combine all chunks into one tensor
@@ -75,14 +73,11 @@ class FeatureManager:
 
 
 
-    def save_feature(self, vid_id):
+    def save_feature_sparse(self, feature, vid_id):
         """
         Create the feature, save the non-zero values along with all the data
         needed to fill it back in
         """
-
-        # Build the feature
-        feature = self.build_feature(vid_id)
 
         # Get nonzero values
         nonzeros = np.array(np.nonzero(feature))
@@ -120,7 +115,8 @@ def main():
     """
     fm = FeatureManager()
     for x in tqdm(range(fm.dataset.num_vids), "Creating features"):
-        fm.save_feature(x)
+        feature = fm.build_feature(x)
+        fm.save_feature(feature, x)
 
 
 

@@ -14,8 +14,8 @@ from torch.autograd import Variable
 import torch.optim as optim
 
 from datasets import get_train_valid_loader, get_test_loader, get_train_loader
-from models import Model_1, Model_2, Model_3, Model_4, Model_5
 
+from config import *
 
 
 def get_accuracy(outputs, labels):
@@ -117,66 +117,29 @@ def training_epoch(net, optimizer, epoch, train_loader):
 
 
 
-def run_experiment(experiment_id):
+def main():
     '''
-    01 - 2D spatial CS
-    02 - 2D spatial CV
-    03 - 3D spatial CS
-    04 - 3D spatial CV
-    05 - 3D temporal CS
-    06 - 3D temporal CV
-    07 - 3D temporal (no augmentation) CS
-    08 - 3D temporal (no augmentation) CV
-    09 - 2D temporal CS
-    10 - 2D temporal CV
+    Finished - 1, 2, 5, 7, 8, 9, 10
+    Running -
+    TODO - 3, 4, 6
+    01, 02 - 2D spatial (images)
+    03, 04 - 3D geometric (3D images)
+    05, 06 - 3D temporal (3D optical flow)
+    07, 08 - 3D temporal (3D optical flow - no augmentation)
+    09, 10 - 2D temporal (2D optical flow)
+
     ------ If time:
-    11 - 2-stream concatenate lstm output
-    12 - 2-stream svm classifier
+    - 2-stream concatenate lstm output
+    - 2-stream svm classifier
     '''
-    print("Running experiment {:02}".format(experiment_id))
+    print_config()
 
-    num_epochs = 50
-    hidden_dimension_size = 256
-    lstm_dropout = 0
-
-    # Init parameters
-    images = False
-    images_3D = False
-    op_flow = False
-    op_flow_2D = False
-    augmentation = True
-
-    # Set experiment parameters
-    if experiment_id in [1,2]:
-        batch_size = 32
-        images = True
-        net = Model_1(hidden_dimension_size, lstm_dropout).cuda()
-        cross_view = False if experiment_id == 1 else True
-    if experiment_id in [3,4]:
-        batch_size = 32
-        images_3D = True
-        net = Model_4(hidden_dimension_size, lstm_dropout).cuda()
-        cross_view = False if experiment_id == 3 else True
-    if experiment_id in [5,6,7,8]:
-        batch_size = 8
-        op_flow = True
-        augmentation = False if experiment_id in [7,8] else True
-        net = Model_2(hidden_dimension_size, lstm_dropout).cuda()
-        cross_view = False if experiment_id == 5 else True
-    if experiment_id in [9,10]:
-        batch_size = 16
-        op_flow_2D = True
-        net = Model_5(hidden_dimension_size, lstm_dropout).cuda()
-        cross_view = False if experiment_id == 5 else True
-
+    # Get network
+    net = torch.nn.DataParallel(NEURAL_NET).cuda()
 
     # Get dataloaders
-    train_loader = get_train_loader(batch_size, images=images, images_3D=images_3D,
-                                    op_flow=op_flow, op_flow_2D=op_flow_2D,
-                                    cross_view=cross_view, augmentation=augmentation)
-    test_loader = get_test_loader(batch_size, images=images, images_3D=images_3D,
-                                  op_flow=op_flow, op_flow_2D=op_flow_2D,
-                                  cross_view=cross_view, augmentation=augmentation)
+    train_loader = get_train_loader()
+    test_loader = get_test_loader()
 
     # Set up optimizer with auto-adjusting learning rate
     parameters = [p for p in net.parameters() if p.requires_grad]
@@ -184,28 +147,30 @@ def run_experiment(experiment_id):
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
     # Train
-    for epoch in range(num_epochs):
+    for epoch in range(NUM_EPOCHS):
         scheduler.step()
-        training_epoch(net, optimizer, epoch, train_loader)
+        train_acc = training_epoch(net, optimizer, epoch, train_loader)
 
         # valid_acc = test_epoch(net, valid_loader, desc="Validation")
         # print('Epoch {:02} top-1 validation accuracy: {:.1f}%'.format(epoch, valid_acc))
 
         # Checkpoint results
-        model_file = 'torch_models/torch_model_experiment_{:02}_epoch_{:02}'.format(experiment_id, epoch)
+        model_file = 'torch_models/torch_model_experiment_{:02}_epoch_{:02}'.format(EXPERIMENT_NUM, epoch)
         torch.save(net.state_dict(), model_file)
 
+        # Early stopping
+        if train_acc > 99.9:
+            break
+
     # Save results
-    model_file = 'torch_models/torch_model_experiment_{:02}'.format(experiment_id)
+    model_file = 'torch_models/torch_model_experiment_{:02}'.format(EXPERIMENT_NUM)
     torch.save(net.state_dict(), model_file)
 
-
     # Test
-    # net.load_state_dict(torch.load('torch_models/torch_model_experiment_{:02}'.format(experiment_id)))
+    # net.load_state_dict(torch.load('torch_models/torch_model_experiment_{:02}'.format(EXPERIMENT_NUM)))
     test_acc = test_epoch(net, test_loader, desc="Testing")
-    print('Experiment {:02} test-set accuracy: {:.2f}%'.format(experiment_id, test_acc))
+    print('Experiment {:02} test-set accuracy: {:.2f}%'.format(EXPERIMENT_NUM, test_acc))
 
 
 if __name__ == '__main__':
-    # main()
-    run_experiment(int(sys.argv[1]))
+    main()
