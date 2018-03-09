@@ -1,5 +1,5 @@
 from __future__ import division
-import sys
+import sys, signal
 from itertools import product
 import cv2
 import numpy as np
@@ -16,6 +16,13 @@ import torch.optim as optim
 from datasets import get_train_valid_loader, get_test_loader, get_train_loader
 
 from config import *
+
+
+# Handle ctrl+c gracefully
+def signal_handler(signal, frame): sys.exit(0)
+signal.signal(signal.SIGINT, signal_handler)
+
+
 
 
 def get_accuracy(outputs, labels):

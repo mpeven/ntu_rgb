@@ -101,7 +101,7 @@ class FeatureManager:
         feat_shape   = np.load("{}/{:05}.shape.npy".format(CACHE_DIR, vid_id))
 
         # Rebuild the feature from the saved data
-        feature = np.zeros(feat_shape)
+        feature = np.zeros(feat_shape, np.float32)
         feature[tuple(feat_nonzero)] = feat_values
 
         return feature

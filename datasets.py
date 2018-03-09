@@ -155,11 +155,11 @@ class NTURGBDataset(Dataset):
         def rotate(op_flow):
             ''' Rotate an optical flow tensor a random amount about the y axis '''
             # Get angle
-            angle = np.random.randint(-90, 90)
+            angle = np.random.randint(-45, 45)
 
             # Rotate positions
             rot_mat = scipy.ndimage.interpolation.rotate(rot_array, angle, (0,1), reshape=False, order=0)
-            op_flow_new = np.zeros(op_flow.shape).astype(np.float32)
+            op_flow_new = np.zeros(op_flow.shape, dtype=np.float32)
             tup = all_tups[rot_mat]
             op_flow_new = op_flow[:,:,tup[:, :, 0],:,tup[:, :, 1]].transpose(2,3,0,4,1)
 
@@ -209,7 +209,7 @@ class NTURGBDataset(Dataset):
 
         # Optical flow 3D
         if self.op_flow:
-            op_flow = self.features.load_feature(vid_id).astype(np.float32)
+            op_flow = self.features.load_feature(vid_id)
             if self.augmentation:
                 op_flow = self.op_flow_transforms(op_flow)
             if self.single_feature:
@@ -218,15 +218,15 @@ class NTURGBDataset(Dataset):
 
         # Optical flow 2D
         if self.op_flow_2D:
-            op_flow_2D = np.zeros([50, 400, 400, 2])
-            for i in range(50):
-                im = cv2.imread('{}/{:05}/{:02}.png'.format(CACHE_2D_OP_FLOW_PNG, vid_id, i))
-                op_flow_2D[i,:,:,0:1] = im[:,:,0:1]
-
-            # Rescale & Reshape
-            m0, m1 = np.load('{}/{:05}/min_max.npy'.format(CACHE_2D_OP_FLOW_PNG, vid_id))
-            op_flow_2D = (((op_flow_2D/255.)*(m1-m0))-np.abs(m0)).reshape([5,20,400,400]).astype(np.float32)
-
+            # op_flow_2D = np.zeros([50, 400, 400, 2])
+            # for i in range(50):
+            #     im = cv2.imread('{}/{:05}/{:02}.png'.format(CACHE_2D_OP_FLOW_PNG, vid_id, i))
+            #     op_flow_2D[i,:,:,0:1] = im[:,:,0:1]
+            #
+            # # Rescale & Reshape
+            # m0, m1 = np.load('{}/{:05}/min_max.npy'.format(CACHE_2D_OP_FLOW_PNG, vid_id))
+            # op_flow_2D = (((op_flow_2D/255.)*(m1-m0))-np.abs(m0)).reshape([5,20,400,400]).astype(np.float32)
+            op_flow_2D = np.load('/hdd/Datasets/NTU/nturgb+d_op_flow_2D_small/{:05}.npy'.format(vid_id))
             if self.single_feature:
                 op_flow_2D = op_flow_2D[2]
             to_return.append(op_flow_2D)
