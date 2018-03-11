@@ -1,5 +1,4 @@
-from ntu_rgb import NTU
-from feature_manager import FeatureManager
+from sysu_dataset import SYSU
 
 import numpy as np
 import scipy
@@ -16,40 +15,13 @@ from config import *
 vox_size=54
 all_tups = np.array(list(itertools.product(range(vox_size), repeat=2)))
 rot_array = np.arange(vox_size*vox_size).reshape([vox_size,vox_size])
+K = 5
+T = 10
 
-class NTURGBDataset(Dataset):
-    '''
-    NTURGB dataset - inherited from pytorch Datset class
-
-    ...
-
-    Attributes
-    ----------
-    op_flow : bool
-        Whether to return the 3D optical flow
-    op_flow_2D : bool
-        Whether to return the 2D optical flow
-    images : bool
-        Whether to return the images
-    images_3D : bool
-        Whether to return the 3D images
-    single_feature : bool
-        Whether to return a single feature per video or multiple
-    test : bool
-        Return test set videos
-    validation : bool
-        Return validation set videos
-    full_train : bool
-        No validation set - all training data is used
-    cross_view : bool
-        Whether to return the cross-view split instead of cross-subject
-    augmentation : bool
-        Whether to perform data augmentation
-    '''
-    def __init__(self, test=False, validation=False, full_train=False):
+class SYSUdataset(Dataset):
+    def __init__(self, test=False, full_train=False):
         # Underlying dataset and features
-        dataset = NTU()
-        self.id_to_action = dataset.id_to_action.copy()
+        self.dataset = SYSU()
 
         # What to return
         self.images = DATA_IMAGES
@@ -60,25 +32,14 @@ class NTURGBDataset(Dataset):
         self.augmentation = DATA_AUGMENTATION
 
         # Train, validation, test split
-        self.train = (test == False) and (validation == False)
-        if DATA_CROSS_VIEW == False:
-            if test: self.vid_ids = dataset.test_split_subject.copy()
-            elif validation: self.vid_ids = dataset.validation_split_subject.copy()
-            elif full_train: self.vid_ids = dataset.train_split_subject.copy()
-            else: self.vid_ids = dataset.train_split_subject_with_validation.copy()
+        self.train = full_train
+        if test:
+            self.vid_ids = self.dataset.get_splits(SPLIT_NUMBER)[1]
         else:
-            if test: self.vid_ids = dataset.test_split_camera.copy()
-            else: self.vid_ids = dataset.train_split_camera.copy()
-
-
-
-
+            self.vid_ids = self.dataset.get_splits(SPLIT_NUMBER)[0]
 
     def __len__(self):
         return len(self.vid_ids)
-
-
-
 
     def image_transforms(self, numpy_imgs):
         ''' Transformations on a list of images
@@ -177,52 +138,49 @@ class NTURGBDataset(Dataset):
         def scale(op_flow):
             return op_flow
 
+        # import datetime as dt
         if self.train:
             op_flow = translate(op_flow)
-            # op_flow = rotate(op_flow)
-            # op_flow = scale(op_flow)
+            op_flow = rotate(op_flow)
 
-        return op_flow
+        return torch.from_numpy(op_flow)
+
+
+
+
+    def get_3D_op_flow(self, vid_id):
+        # Load the data
+        feat_values  = np.load("{}/{:05}.npy".format(CACHE_3D_VOX_FLOW_SYSU, vid_id))
+        feat_nonzero = np.load("{}/{:05}.nonzeros.npy".format(CACHE_3D_VOX_FLOW_SYSU, vid_id))
+        feat_shape   = np.load("{}/{:05}.shape.npy".format(CACHE_3D_VOX_FLOW_SYSU, vid_id))
+
+        # Rebuild the feature from the saved data
+        feature = np.zeros(feat_shape, np.float32)
+        feature[tuple(feat_nonzero)] = feat_values
+
+        return feature
 
 
 
 
     def __getitem__(self, idx):
-        to_return = []
         vid_id = self.vid_ids[idx]
+        to_return = []
 
         # Images
         if self.images:
-            images = np.load('{}/{:05}.npy'.format(CACHE_2D_IMAGES, vid_id))
+            images = np.load('{}/{:05}.npy'.format(CACHE_2D_IMAGES_SYSU, vid_id))
             images = self.image_transforms(images)
             to_return.append(images)
 
-        # 3D images
-        if self.images_3D:
-            feat_nonzero = np.load("{}/{:05}.nonzeros.npy".format(CACHE_3D_IMAGES, vid_id))
-            images_3D = np.zeros([5, 108, 108, 108], np.float32)
-            images_3D[tuple(feat_nonzero)] = 1
-            to_return.append(images_3D)
-
         # Optical flow 3D
         if self.op_flow:
-            feat_values  = np.load("{}/{:05}.npy".format(CACHE_FEATURES_VOX_FLOW, vid_id))
-            feat_nonzero = np.load("{}/{:05}.nonzeros.npy".format(CACHE_FEATURES_VOX_FLOW, vid_id))
-            feat_shape   = np.load("{}/{:05}.shape.npy".format(CACHE_FEATURES_VOX_FLOW, vid_id))
-            op_flow = np.zeros(feat_shape, np.float32)
-            op_flow[tuple(feat_nonzero)] = feat_values
-            if self.augmentation:
-                op_flow = self.op_flow_transforms(op_flow)
+            op_flow = self.get_3D_op_flow(vid_id)
+            op_flow = self.op_flow_transforms(op_flow)
             to_return.append(op_flow)
 
-        # Optical flow 2D
-        if self.op_flow_2D:
-            op_flow_2D = np.load('/hdd/Datasets/NTU/nturgb+d_op_flow_2D_small/{:05}.npy'.format(vid_id))
-            to_return.append(op_flow_2D)
-
-        # Label
-        y = self.id_to_action[vid_id]
-        to_return.append(y)
+        # Labels
+        to_return.append(self.dataset.get_label(vid_id))
 
         return to_return
 
@@ -230,31 +188,8 @@ class NTURGBDataset(Dataset):
 
 
 
-def get_train_valid_loader():
-    # Create the dataset
-    train_dataset = NTURGBDataset()
-    valid_dataset = NTURGBDataset(validation=True)
-
-    # Seed the shuffler
-    np.random.seed(149)
-    torch.manual_seed(149)
-
-    train_loader = torch.utils.data.DataLoader(train_dataset,
-                    batch_size=DATA_BATCH_SIZE, shuffle=True,
-                    num_workers=NUM_WORKERS, pin_memory=True)
-
-    valid_loader = torch.utils.data.DataLoader(valid_dataset,
-                    batch_size=DATA_BATCH_SIZE, shuffle=True,
-                    num_workers=NUM_WORKERS, pin_memory=True)
-
-    return (train_loader, valid_loader)
-
-
-
-
-
 def get_train_loader():
-    dataset = NTURGBDataset(full_train=True)
+    dataset = SYSUdataset(full_train=True)
     return torch.utils.data.DataLoader(dataset, batch_size=DATA_BATCH_SIZE,
                                        shuffle=True, num_workers=NUM_WORKERS,
                                        pin_memory=True)
@@ -262,7 +197,7 @@ def get_train_loader():
 
 
 def get_test_loader():
-    dataset = NTURGBDataset(test=True)
+    dataset = SYSUdataset(test=True)
     return torch.utils.data.DataLoader(dataset, batch_size=DATA_BATCH_SIZE,
                                        shuffle=False, num_workers=NUM_WORKERS,
                                        pin_memory=True)

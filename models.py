@@ -18,7 +18,6 @@ from config import *
 
 ####################
 # Constants
-NUM_CLASSES = 60
 T = 10 # Number of frames for each feature
 C = 3  # Number of channels
 ####################
@@ -30,10 +29,6 @@ class Model_1(nn.Module):
     ''' Spatial '''
     def __init__(self):
         super(Model_1, self).__init__()
-
-        # Single feature or multiple
-        self.single_feature = DATA_SINGLE_FEAT
-
         # Set up base image feature extractor
         self.base_model = nn.Sequential(*list(models.resnet18(pretrained=True).children())[:-1])
         base_model_fc_size = list(self.base_model.parameters())[-1].size(0)
@@ -50,14 +45,9 @@ class Model_1(nn.Module):
         )
 
         # Final layer
-        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
-        self.preds_single_feature = nn.Linear(base_model_fc_size, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
 
     def forward(self, X):
-        # Single feature
-        if self.single_feature:
-            return self.preds_single_feature(torch.squeeze(self.base_model(X)))
-
         # Stack individual image features
         base_model_out = [self.base_model(X[:,i]) for i in range(X.size()[1])]
         x = torch.squeeze(torch.stack(base_model_out))
@@ -72,11 +62,8 @@ class Model_1(nn.Module):
 
 class Model_2(nn.Module):
     ''' Temporal (3D optical flow) '''
-    def __init__(self, single_feature=False):
+    def __init__(self):
         super(Model_2, self).__init__()
-
-        # Single feature or multiple
-        self.single_feature = single_feature
 
         # Conv layers
         self.convlayer1 = nn.Sequential(
@@ -88,19 +75,16 @@ class Model_2(nn.Module):
             nn.Conv3d(96, 256, kernel_size=3, padding=1),
             nn.BatchNorm3d(256),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
         self.convlayer3 = nn.Sequential(
             nn.Conv3d(256, 512, kernel_size=3, padding=1),
             nn.BatchNorm3d(512),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
         self.convlayer4 = nn.Sequential(
             nn.Conv3d(512, 512, kernel_size=2, padding=1),
             nn.BatchNorm3d(512),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
 
         # LSTM Layer
@@ -111,15 +95,9 @@ class Model_2(nn.Module):
         )
 
         # Final layer
-        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
-        self.preds_single_feature = nn.Linear(512, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
 
     def forward(self, X):
-        # No temporal if single feature
-        if self.single_feature:
-            x = torch.squeeze(self.convlayer4(self.convlayer3(self.convlayer2(self.convlayer1(X)))))
-            return self.preds_single_feature(x)
-
         # Stack individual image features
         conv_layers_out = []
         for chunk in range(X.size(1)):
@@ -161,19 +139,16 @@ class Model_3(nn.Module):
             nn.Conv3d(96, 256, kernel_size=3, padding=1),
             nn.BatchNorm3d(256),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
         self.convlayer3 = nn.Sequential(
             nn.Conv3d(256, 512, kernel_size=3, padding=1),
             nn.BatchNorm3d(512),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
         self.convlayer4 = nn.Sequential(
             nn.Conv3d(512, 512, kernel_size=2, padding=1),
             nn.BatchNorm3d(512),
             nn.ReLU(),
-            # nn.Dropout3d(.2),
             nn.MaxPool3d(3))
 
         # LSTM Layer
@@ -189,9 +164,9 @@ class Model_3(nn.Module):
         )
 
         # Final layer
-        # self.preds_temporal = nn.Linear(hidden_dimension_size, NUM_CLASSES)
-        # self.preds_spatial  = nn.Linear(hidden_dimension_size, NUM_CLASSES)
-        self.preds_two_stream = nn.Linear(HIDDEN_DIM_SIZE + HIDDEN_DIM_SIZE, NUM_CLASSES)
+        # self.preds_temporal = nn.Linear(hidden_dimension_size, DATASET_NUM_CLASSES)
+        # self.preds_spatial  = nn.Linear(hidden_dimension_size, DATASET_NUM_CLASSES)
+        self.preds_two_stream = nn.Linear(HIDDEN_DIM_SIZE + HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
 
     def forward(self, images, op_flow):
         # Temporal - optical flow
@@ -224,41 +199,41 @@ class Model_4(nn.Module):
         super(Model_4, self).__init__()
         # Conv layers
         self.convlayer1 = nn.Sequential(
-            nn.Conv3d(T, 96, kernel_size=3, padding=1),
-            nn.BatchNorm3d(96),
+            nn.Conv3d(1, 16, kernel_size=3, padding=1),
+            nn.BatchNorm3d(16),
             nn.ReLU(),
             nn.MaxPool3d(3))
         self.convlayer2 = nn.Sequential(
-            nn.Conv3d(96, 256, kernel_size=3, padding=1),
-            nn.BatchNorm3d(256),
+            nn.Conv3d(16, 64, kernel_size=3, padding=1),
+            nn.BatchNorm3d(64),
             nn.ReLU(),
             nn.MaxPool3d(3))
         self.convlayer3 = nn.Sequential(
-            nn.Conv3d(256, 512, kernel_size=3, padding=1),
-            nn.BatchNorm3d(512),
+            nn.Conv3d(64, 128, kernel_size=3, padding=1),
+            nn.BatchNorm3d(128),
             nn.ReLU(),
             nn.MaxPool3d(3))
         self.convlayer4 = nn.Sequential(
-            nn.Conv3d(512, 512, kernel_size=2, padding=1),
-            nn.BatchNorm3d(512),
+            nn.Conv3d(128, 128, kernel_size=3, padding=1),
+            nn.BatchNorm3d(128),
             nn.ReLU(),
             nn.MaxPool3d(3))
 
         # LSTM Layer
         self.lstmlayer = nn.LSTM(
-            input_size  = 512,
+            input_size  = 128,
             hidden_size = HIDDEN_DIM_SIZE,
             dropout     = LSTM_DROPOUT
         )
 
         # Final layer
-        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
 
     def forward(self, X):
         # Stack individual image features
         conv_layers_out = []
         for chunk in range(X.size(1)):
-            x = self.convlayer1(X[:, chunk])
+            x = self.convlayer1(torch.unsqueeze(X[:, chunk], 1))
             x = self.convlayer2(x)
             x = self.convlayer3(x)
             x = self.convlayer4(x)
@@ -272,12 +247,8 @@ class Model_4(nn.Module):
 
 class Model_5(nn.Module):
     ''' 2D Temporal (2D optical flow) '''
-    def __init__(self, single_feature=False):
+    def __init__(self):
         super(Model_5, self).__init__()
-
-        # Single feature or multiple
-        self.single_feature = single_feature
-
         # Conv layers
         self.convlayer1 = nn.Sequential(
             nn.Conv2d(2 * T, 96, kernel_size=7, padding=1, stride=2),
@@ -308,8 +279,61 @@ class Model_5(nn.Module):
         )
 
         # Final layer
-        self.preds = nn.Linear(HIDDEN_DIM_SIZE, NUM_CLASSES)
-        self.preds_single_feature = nn.Linear(512, NUM_CLASSES)
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
+
+    def forward(self, X):
+        # Stack individual image features
+        conv_layers_out = []
+        for chunk in range(X.size(1)):
+            x = self.convlayer1(X[:, chunk])
+            x = self.convlayer2(x)
+            x = self.convlayer3(x)
+            x = self.convlayer4(x)
+            conv_layers_out.append(x)
+        x = torch.squeeze(torch.stack(conv_layers_out))
+
+        # LSTM & final layer
+        x, _ = self.lstmlayer(x)
+        return self.preds(x[-1])
+
+
+
+
+class Model_5_small(nn.Module):
+    ''' 2D Temporal (2D optical flow) '''
+    def __init__(self):
+        super(Model_5_small, self).__init__()
+        # Conv layers
+        self.convlayer1 = nn.Sequential(
+            nn.Conv2d(2 * T, 96, kernel_size=3, padding=1),
+            nn.BatchNorm2d(96),
+            nn.ReLU(),
+            nn.MaxPool2d(3))
+        self.convlayer2 = nn.Sequential(
+            nn.Conv2d(96, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(3))
+        self.convlayer3 = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.MaxPool2d(3))
+        self.convlayer4 = nn.Sequential(
+            nn.Conv2d(512, 512, kernel_size=2, padding=1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.MaxPool2d(3))
+
+        # LSTM Layer
+        self.lstmlayer = nn.LSTM(
+            input_size  = 512,
+            hidden_size = HIDDEN_DIM_SIZE,
+            dropout     = LSTM_DROPOUT
+        )
+
+        # Final layer
+        self.preds = nn.Linear(HIDDEN_DIM_SIZE, DATASET_NUM_CLASSES)
 
     def forward(self, X):
         # Stack individual image features

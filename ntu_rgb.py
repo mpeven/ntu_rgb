@@ -500,20 +500,26 @@ class NTU():
         for frame in range(num_frames):#tqdm(range(num_frames), "Filling in Voxel Grid"):
 
             # Interpolate and discretize location of the voxels in the grid
-            vox_x = np.floor((op_flow_3D[frame][:,0] - min_x)/(max_x - min_x) * VOXEL_SIZE).astype(int)
-            vox_y = np.floor((op_flow_3D[frame][:,1] - min_y)/(max_y - min_y) * VOXEL_SIZE).astype(int)
-            vox_z = np.floor((op_flow_3D[frame][:,2] - min_z)/(max_z - min_z) * VOXEL_SIZE).astype(int)
+            vox_x = np.floor((op_flow_3D[frame][:,0] - min_x)/(max_x - min_x) * VOXEL_SIZE).astype(np.uint8)
+            vox_y = np.floor((op_flow_3D[frame][:,1] - min_y)/(max_y - min_y) * VOXEL_SIZE).astype(np.uint8)
+            vox_z = np.floor((op_flow_3D[frame][:,2] - min_z)/(max_z - min_z) * VOXEL_SIZE).astype(np.uint8)
+            # print()
+            # print(vox_x.shape)
+            # print(max(vox_x))
+            # print(max(vox_y))
+            # print(max(vox_z))
+            # exit()
 
             # Add all interpolated values to the correct location in the tensor
-            np.add.at(voxel_flow_tensor, (frame, 0, vox_x, vox_y, vox_z), 1)
+            # np.add.at(voxel_flow_tensor, (frame, 0, vox_x, vox_y, vox_z), 1)
             np.add.at(voxel_flow_tensor, (frame, 1, vox_x, vox_y, vox_z), op_flow_3D[frame][:,3])
             np.add.at(voxel_flow_tensor, (frame, 2, vox_x, vox_y, vox_z), op_flow_3D[frame][:,4])
             np.add.at(voxel_flow_tensor, (frame, 3, vox_x, vox_y, vox_z), op_flow_3D[frame][:,5])
 
             # Average values
-            voxel_flow_tensor[frame, 1, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
-            voxel_flow_tensor[frame, 2, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
-            voxel_flow_tensor[frame, 3, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            # voxel_flow_tensor[frame, 1, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            # voxel_flow_tensor[frame, 2, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
+            # voxel_flow_tensor[frame, 3, vox_x, vox_y, vox_z] /= voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z]
             voxel_flow_tensor[frame, 0, vox_x, vox_y, vox_z] = 1
 
         return voxel_flow_tensor

@@ -1,14 +1,26 @@
 import os, sys, glob
 import cv2
-from tqdm import tqdm
+from tqdm import tqdm, trange
 import numpy as np
 import scipy, scipy.ndimage
 from opengl_viewer.opengl_viewer import OpenGlViewer
 
+from config import *
 
-# DATASET_LOCATION = '/Users/mpeven/Downloads/SYSU3DAction_2'
-DATASET_LOCATION = '/home/mike/Documents/SYSU'
-op_flow_3D_dir = '/hdd/Datasets/SYSU/op_flow_3D'
+# op_flow_3D_dir = '/hdd/Datasets/SYSU/op_flow_3D'
+op_flow_3D_dir = '/Users/mpeven/Downloads/op_flow_3D'
+image_2D_dir = '/hdd/Datasets/SYSU/rgb_images_5_npy'
+
+
+person_names = ['BoTong', 'ChengKun', 'ChunChao', 'GuoTian', 'HongWei',
+    'HuangDong', 'JiaChi', 'JianSheng', 'LiXiang', 'LiuXiao',
+    'MeiLing', 'ShiChang', 'ShiZhe', 'Weige', 'XiaoBin', 'XiaoHan',
+    'YanFei', 'YinChong', 'YuMeng', 'ZhanXiang', 'cenjiepeng',
+    'daifengjing', 'dongcheng', 'gaojinyu', 'hubin', 'huxiaojun',
+    'jiabiao', 'jianggongfa', 'junyong', 'likerui', 'liwuyang', 'luxi',
+    'shengdiankai', 'wangxiaoying', 'zhanglifang', 'zhangpeipei',
+    'zhangyoujun', 'zhaoyadan', 'zhaozhong', 'zhouzaozhe'
+]
 
 
 class SYSU:
@@ -16,31 +28,26 @@ class SYSU:
         self.dataset = self.get_files()
         self.num_vids = len(self.dataset)
 
-    def check_files(self):
-        for subject in sorted(glob.glob(DATASET_LOCATION + '/*')):
-            if os.path.basename(subject) == 'matlabcode': continue
-            videos = glob.glob(subject + '/*')
-            for video in sorted(videos):
-                dl = len(glob.glob(video + '/depth/*'))
-                rl = len(glob.glob(video + '/rgb/*'))
-                if dl != rl or dl == 0:
-                    print("Error: {} - {}".format(os.path.basename(subject), os.path.basename(video)))
+    def get_splits(self, split_num):
+        test_split_ids  = np.load('/hdd/Datasets/SYSU/cross_subject_test_splits.npy')[split_num] - 1
+        train_split_ids = np.load('/hdd/Datasets/SYSU/cross_subject_train_splits.npy')[split_num] - 1
+        return train_split_ids, test_split_ids
+
+    def get_label(self, vid_id):
+        return self.dataset[vid_id]['video']
 
     def get_files(self):
         all_videos = []
-        for subject in sorted(glob.glob(DATASET_LOCATION + '/*')):
-            if os.path.basename(subject) == 'matlabcode': continue
-            videos = glob.glob(subject + '/*')
-            for video in sorted(videos):
-                depth_files = sorted(glob.glob(video + '/depth/*'))
-                rgb_files = sorted(glob.glob(video + '/rgb/*'))
-                if len(depth_files) == len(rgb_files) and len(depth_files) != 0:
-                    all_videos.append({
-                        'subject': os.path.basename(subject),
-                        'video': int(os.path.basename(video.replace('video', ''))),
-                        'depth_files': depth_files,
-                        'rgb_files': rgb_files
-                    })
+        for person in person_names:
+            for video in range(12):
+                depth_files = sorted(glob.glob('{}/{}/video{}/depth/*'.format(SYSU_LOCATION, person, video+1)))
+                rgb_files = sorted(glob.glob('{}/{}/video{}/rgb/*'.format(SYSU_LOCATION, person, video+1)))
+                all_videos.append({
+                    'person': person,
+                    'video': int(video),
+                    'depth_files': depth_files,
+                    'rgb_files': rgb_files
+                })
         return all_videos
 
     def get_rgb_vid_images(self, vid_id, grayscale=False):
@@ -105,9 +112,9 @@ class SYSU:
         '''
 
         # Check cache for optical flow
-        # if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'.format(vid_id)):
-        #     # print("Found 3D optical flow {:05} in cache".format(vid_id))
-        #     return np.load(op_flow_3D_dir + '/{:05}.npz'.format(vid_id))['arr_0']
+        if os.path.isfile(op_flow_3D_dir + '/{:05}.npz'.format(vid_id)):
+            # print("Found 3D optical flow {:05} in cache".format(vid_id))
+            return np.load(op_flow_3D_dir + '/{:05}.npz'.format(vid_id))['arr_0']
 
         # Get rgb to 3D map and the 2D rgb optical flow vectors
         rgb_xyz = self.get_rgb_3D_maps(vid_id)
@@ -166,7 +173,6 @@ class SYSU:
 
         return op_flow_3D
 
-
     def get_voxel_flow(self, vid_id):
         '''
         Voxelize the 3D optical flow tensor (sparse)
@@ -209,14 +215,54 @@ class SYSU:
 
 
 
+def rename_everything():
+    files_old = []
+    for subject in sorted(glob.glob(SYSU_LOCATION + '/*')):
+        if os.path.basename(subject) == 'matlabcode': continue
+        videos = glob.glob(subject + '/*')
+        for video in sorted(videos):
+            depth_files = sorted(glob.glob(video + '/depth/*'))
+            rgb_files = sorted(glob.glob(video + '/rgb/*'))
+            if len(depth_files) == len(rgb_files) and len(depth_files) != 0:
+                files_old.append({
+                    'subject': os.path.basename(subject),
+                    'video': int(os.path.basename(video.replace('video', ''))),
+                    'depth_files': depth_files,
+                    'rgb_files': rgb_files
+                })
+
+    dataset = SYSU()
+
+    files_new = dataset.dataset
+    for new_vid_id, new_vid_dict in enumerate(files_new):
+        for old_vid_id, old_vid_dict in enumerate(files_old):
+            if new_vid_dict['depth_files'][0] == old_vid_dict['depth_files'][0]:
+                old_file = "/hdd/Datasets/SYSU/op_flow_3D/{:05}.npy".format(old_vid_id)
+                new_file = "/hdd/Datasets/SYSU/op_flow_3D/{:05}.npy".format(new_vid_id)
+                os.rename(old_file, new_file)
+                break
+
 
 
 
 def create_all_op_flow_3D():
     dataset = SYSU()
-    for vid in range(dataset.num_vids):
+    for vid in trange(dataset.num_vids):
         x = dataset.get_3D_optical_flow(vid)
         np.savez_compressed(op_flow_3D_dir + '/{:05}'.format(vid), x)
+
+
+def cache_5_ims_per_vid():
+    dataset = SYSU()
+    for vid in trange(dataset.num_vids, desc="Caching numpy ims", ):
+        frames = len(dataset.dataset[vid]['rgb_files'])
+        skip_amount = (frames - 10) / (5 - 1)
+        all_ims = []
+        for feature_idx in range(5):
+            start = int(skip_amount * feature_idx)
+            all_ims.append(cv2.imread(dataset.dataset[vid]['rgb_files'][start+5]))
+        np.save(image_2D_dir + '/{:05}'.format(vid), np.stack(all_ims))
+
 
 
 def show_voxel_flow():
@@ -226,7 +272,9 @@ def show_voxel_flow():
 
 
 def main():
-    create_all_op_flow_3D()
+    rename_everything()
+    # cache_5_ims_per_vid()
+    # create_all_op_flow_3D()
     # show_voxel_flow()
 
 

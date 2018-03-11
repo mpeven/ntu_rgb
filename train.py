@@ -13,25 +13,16 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.optim as optim
 
-from datasets import get_train_valid_loader, get_test_loader, get_train_loader
-
 from config import *
 
+if DATASET == "NTU":
+    from datasets import get_test_loader, get_train_loader
+if DATASET == "SYSU":
+    from datasets_sysu import get_test_loader, get_train_loader
 
 # Handle ctrl+c gracefully
 def signal_handler(signal, frame): sys.exit(0)
 signal.signal(signal.SIGINT, signal_handler)
-
-
-
-
-def get_accuracy(outputs, labels):
-    ''' Calculate the classification accuracy '''
-    _, predicted = torch.max(outputs.data, 1)
-    total = labels.size(0)
-    correct = (predicted.type(torch.LongTensor) == labels.type(torch.LongTensor)).sum()
-    return correct / total
-
 
 
 
@@ -46,7 +37,8 @@ def test_epoch(net, test_loader, desc):
     to_save_labels = []
 
     # Single pass through testation data
-    accuracies = []
+    correct = 0
+    total = 0
     iterator = tqdm(test_loader, desc=desc, ncols=100, leave=False)
     for i, test_data in enumerate(iterator):
         # Get input data and labels
@@ -66,17 +58,24 @@ def test_epoch(net, test_loader, desc):
             to_save_labels.append(test_data[-1].numpy().copy())
 
         # Calculate accuracy
-        accuracies.append(get_accuracy(outputs, test_data[-1]))
-        iterator.set_postfix({"Accuracy": "{:.4f}".format(100 * np.mean(accuracies))})
+        _, predicted = torch.max(outputs.data, 1)
+        total += test_data[-1].size(0)
+        correct += np.sum(predicted.cpu().numpy() == test_data[-1].numpy())
+        accuracy = 100.0 * correct / total
+        iterator.set_postfix({"Accuracy": "{:.4f}".format(accuracy)})
 
     # Save data
     if desc == "Testing":
         all_output = np.concatenate(to_save_output)
         all_labels = np.concatenate(to_save_labels)
-        np.save('_output_spatial_{:.4f}'.format(100 * np.mean(accuracies)), all_output)
-        np.save('_labels_spatial_{:.4f}'.format(100 * np.mean(accuracies)), all_labels)
+        if DATASET == "SYSU":
+            np.save('_output_experiment_{:02}_{:02}'.format(EXPERIMENT_NUM, SPLIT_NUMBER), all_output)
+            np.save('_labels_experiment_{:02}_{:02}'.format(EXPERIMENT_NUM, SPLIT_NUMBER), all_labels)
+        else:
+            np.save('_output_experiment_{:02}_{:.4f}'.format(EXPERIMENT_NUM, accuracy), all_output)
+            np.save('_labels_experiment_{:02}_{:.4f}'.format(EXPERIMENT_NUM, accuracy), all_labels)
 
-    return 100 * np.mean(accuracies)
+    return accuracy
 
 
 
@@ -89,7 +88,8 @@ def training_epoch(net, optimizer, epoch, train_loader):
     loss_func = nn.CrossEntropyLoss().cuda()
 
     # Single pass through training data
-    accuracies = []
+    total = 0
+    correct = 0
     losses = []
     stat_dict = {"Epoch": epoch}
     iterator = tqdm(train_loader, postfix=stat_dict, ncols=100)
@@ -111,14 +111,17 @@ def training_epoch(net, optimizer, epoch, train_loader):
 
         # Update loss and accuracy
         if (i+1)%10 == 0:
-            accuracies.append(get_accuracy(outputs, train_data[-1]))
+            _, predicted = torch.max(outputs.data, 1)
+            total += train_data[-1].size(0)
+            correct += np.sum(predicted.cpu().numpy() == train_data[-1].numpy())
+            accuracy = 100.0 * correct / total
             losses.append(loss.data[0])
             stat_dict['Loss'] = "{:.5f}".format(np.mean(losses))
-            stat_dict['Acc'] = "{:.4f}".format(100 * np.mean(accuracies))
+            stat_dict['Acc'] = "{:.4f}".format(accuracy)
             iterator.set_postfix(stat_dict)
 
     # Return the training accuracy
-    return 100 * np.mean(accuracies)
+    return accuracy
 
 
 
@@ -158,7 +161,7 @@ def main():
         scheduler.step()
         train_acc = training_epoch(net, optimizer, epoch, train_loader)
 
-        # valid_acc = test_epoch(net, valid_loader, desc="Validation")
+        # valid_acc = test_epoch(net, test_loader, desc="Validation")
         # print('Epoch {:02} top-1 validation accuracy: {:.1f}%'.format(epoch, valid_acc))
 
         # Checkpoint results

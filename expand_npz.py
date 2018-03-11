@@ -3,6 +3,7 @@ import cv2
 from tqdm import tqdm
 import multiprocessing
 import os, sys
+from skimage.transform import resize
 
 # def expand_file(file_name):
 #     ra = np.load(file_name)['arr_0']
@@ -55,18 +56,23 @@ def create_ims_from_op_flow(vid_id):
         im = cv2.imwrite('{}/{:05}/{:02}.png'.format(PNG_CACHE, vid_id, i), op_flow_rgb[i])
 
 
-with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
-    list(tqdm(p.imap(create_ims_from_op_flow, range(56880)), total=56880))
+def create_npys_from_ims(vid_id):
+    op_flow_2D = np.zeros([50, 54, 54, 2])
+    for i in range(50):
+        im = cv2.imread('{}/{:05}/{:02}.png'.format(PNG_CACHE, vid_id, i))
+        im = cv2.resize(im, (54, 54))
+        op_flow_2D[i,:,:,0:1] = im[:,:,0:1]
 
-# for vid_id in tqdm(range(56880)):
-#     op_flow = np.zeros([50, 400, 400, 2])
-#     for i in range(50):
-#         im = cv2.imread('{}/{:05}/{:02}.png'.format(PNG_CACHE, vid_id, i))
-#         op_flow[i,:,:,0] = im[:,:,0]
-#         op_flow[i,:,:,1] = im[:,:,1]
-#
-#     feature = op_flow.reshape([5,20,400,400])
-#
-#     # Rescale
-#     m0, m1 = np.load('{}/{:05}/min_max.npy'.format(PNG_CACHE, vid_id))
-#     feature = ((feature/255.)*(m1-m0))-np.abs(m0)
+    # Rescale & Reshape
+    m0, m1 = np.load('{}/{:05}/min_max.npy'.format(PNG_CACHE, vid_id))
+    op_flow_2D = (((op_flow_2D/255.)*(m1-m0))-np.abs(m0)).reshape([5,20,54,54]).astype(np.float32)
+    np.save("/hdd/Datasets/NTU/nturgb+d_op_flow_2D_small/{:05}".format(vid_id), op_flow_2D)
+
+all_files = []
+for x in range(56880):
+    if os.path.isfile('/hdd/Datasets/NTU/nturgb+d_op_flow_2D_small/{:05}.npy'.format(x)):
+        continue
+    all_files.append(x)
+
+with multiprocessing.Pool(multiprocessing.cpu_count()) as p:
+    list(tqdm(p.imap(create_npys_from_ims, all_files), total=len(all_files)))
