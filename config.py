@@ -4,7 +4,7 @@ Server & Model configuration parameters
 # from models import Model_1, Model_2, Model_3, Model_4, Model_5
 
 #### Set these:
-EXPERIMENT_NUM = 6
+EXPERIMENT_NUM = 2
 MACHINE_NUM = 1 # 0 - mac, 1 - Titan, 2 - MARCC, 3 - MCEH
 NUM_WORKERS = 4 # Cores
 ####
@@ -60,12 +60,13 @@ if MACHINE_NUM == 2:
 
 ### GPU Server
 if MACHINE_NUM == 3:
-    CACHE_METADATA     = '/home/mpeven1/rambo/home/mpeven/ntu_rgb/cache/metadata.pickle'
+    CACHE_METADATA     = '/home/mpeven1/rambo/home/mpeven/ntu_rgb/cache/metadata.pickle2'
     CACHE_RGB_VID      = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_rgb'
     CACHE_IR_VID       = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_ir'
     CACHE_DEPTH        = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth'
     CACHE_MASKED_DEPTH = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_depth_masked'
     CACHE_SKELETONS    = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_skeletons'
+    CACHE_FEATURES_VOX_FLOW = '/home/mpeven1/rambo/edata/nturgb/nturgb+d_features_small'
 
 
 
@@ -84,7 +85,7 @@ EXPERIMENTS = [
         'batch_size': 32,
     }, {    ### 2 ###
         'images': True,
-        'batch_size': 32,
+        'batch_size': 4,
         'cross_view': True,
     }, {    ### 3 ###
         'images_3D': True,

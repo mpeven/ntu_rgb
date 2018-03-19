@@ -157,7 +157,7 @@ class NTURGBDataset(Dataset):
             # Get angle
             angle = np.random.randint(-45, 45)
 
-            # Rotate positions
+            # Rotate positions - Lawrence's algorithm
             rot_mat = scipy.ndimage.interpolation.rotate(rot_array, angle, (0,1), reshape=False, order=0)
             op_flow_new = np.zeros(op_flow.shape, dtype=np.float32)
             tup = all_tups[rot_mat]

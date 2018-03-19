@@ -1,3 +1,8 @@
+# Outputs and paper stuff
+paper/
+out_images/
+screenshots/
+
 # Mac stuff
 .DS_Store
 

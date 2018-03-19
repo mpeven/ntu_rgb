@@ -20,8 +20,8 @@ def record_multiple_voxel_flow():
 
 
 def view_one_voxel_flow(vid_id):
-    # vox_flow = NTU().get_voxel_flow(vid_id)
-    vox_flow = SYSU().get_voxel_flow(vid_id)
+    vox_flow = NTU().get_voxel_flow(vid_id)
+    # vox_flow = SYSU().get_voxel_flow(vid_id)
 
     ##### Rotate
     # vox_flow = scipy.ndimage.interpolation.rotate(vox_flow, 10, (2,4), reshape=False, order=0)
@@ -30,5 +30,5 @@ def view_one_voxel_flow(vid_id):
 
 
 if __name__ == '__main__':
-    # view_one_voxel_flow(int(sys.argv[1]))
-    record_multiple_voxel_flow()
+    view_one_voxel_flow(int(sys.argv[1]))
+    # record_multiple_voxel_flow()

@@ -179,7 +179,7 @@ class NTU():
                         28, 31, 34, 35, 38
 
         Cross-View Evaluation:
-            Train camera views: 1, 2
+            Train camera views: 2, 3
         '''
         # Save the dataset as a dataframe
         dataset = pd.DataFrame(self.metadata)

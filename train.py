@@ -129,9 +129,6 @@ def training_epoch(net, optimizer, epoch, train_loader):
 
 def main():
     '''
-    Finished - 1, 2, 5, 7, 8, 9, 10
-    Running -
-    TODO - 3, 4, 6
     01, 02 - 2D spatial (images)
     03, 04 - 3D geometric (3D images)
     05, 06 - 3D temporal (3D optical flow)
@@ -161,16 +158,13 @@ def main():
         scheduler.step()
         train_acc = training_epoch(net, optimizer, epoch, train_loader)
 
-        # valid_acc = test_epoch(net, test_loader, desc="Validation")
-        # print('Epoch {:02} top-1 validation accuracy: {:.1f}%'.format(epoch, valid_acc))
-
         # Checkpoint results
         model_file = 'torch_models/torch_model_experiment_{:02}_epoch_{:02}'.format(EXPERIMENT_NUM, epoch)
         torch.save(net.state_dict(), model_file)
 
-        # Early stopping
-        if train_acc > 99.9:
-            break
+        # net.load_state_dict(torch.load(model_file))
+        # valid_acc = test_epoch(net, test_loader, desc="Validation (epoch {:02})".format(epoch))
+        # print('Epoch {:02} top-1 validation accuracy: {:.1f}%'.format(epoch, valid_acc))
 
     # Save results
     model_file = 'torch_models/torch_model_experiment_{:02}'.format(EXPERIMENT_NUM)
